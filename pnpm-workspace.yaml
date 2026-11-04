@@ -1,0 +1,4 @@
+# 单包工作区。pnpm 11 默认不跑依赖的构建脚本，esbuild 要放行（vitest 用它），koffi 要放行（采集引擎的原生库）。
+allowBuilds:
+  esbuild: true
+  koffi: true

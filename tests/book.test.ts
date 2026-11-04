@@ -78,11 +78,11 @@ describe('DiaryBook', () => {
     expect(new DiaryBook(dir, 'UTC', 30).cursor).toBe(9);
   });
 
-  it('drops entries older than the kept days on load', () => {
-    const old = new Date(Date.now() - 3 * 86_400_000).toISOString();
-    const first = new DiaryBook(dir, 'UTC', 1);
+  it('drops detail entries older than detailHours on load', () => {
+    const old = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    const first = new DiaryBook(dir, 'UTC', 30, 1);
     first.ingest([event(1, old, 'old')]);
-    const reopened = new DiaryBook(dir, 'UTC', 1);
+    const reopened = new DiaryBook(dir, 'UTC', 30, 1);
     expect(reopened.size).toBe(0);
     expect(reopened.cursor).toBe(1);
   });

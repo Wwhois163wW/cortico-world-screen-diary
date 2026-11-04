@@ -110,6 +110,7 @@ export class ScreenDiaryWorld implements World {
       this.filter.observe({ tech: latest.tech, work: latest.work });
       this.lastSampleAt = Date.parse(latest.ts) || 0;
     }
+    if (this.book.sampleCount === 0 && this.book.size > 0) this.backfill(this.book);
     if (!this.opts.cfg.enabled) return;
     void this.poll();
     this.timer = setInterval(() => { void this.poll(); }, Math.max(1000, this.opts.cfg.pollMs));
@@ -199,6 +200,44 @@ export class ScreenDiaryWorld implements World {
       this.lastSampleAt = at;
     }
     return { ...entry, category: projection.category, tech: projection.tech, work: projection.work };
+  }
+
+  /** 0.1 stored only detail entries; replay them through the same projection so the panel has history. */
+  private backfill(book: DiaryBook): void {
+    const filter = this.filter;
+    if (!filter) return;
+    const step = Math.max(60_000, Math.max(5, this.opts.cfg.sampleSec) * 1000);
+    let last = 0;
+    for (const entry of book.chronological()) {
+      const projection = classify(entry.app ?? null, entry.title ?? null, {
+        blurAi: this.opts.cfg.blurAi,
+        ignoreApps: this.opts.cfg.ignoreApps,
+      });
+      if (projection.filtered || projection.blurred) continue;
+      const at = Date.parse(entry.ts);
+      if (Number.isNaN(at)) continue;
+      const smoothed = filter.observe({ tech: projection.tech, work: projection.work });
+      if (at - last < step) continue;
+      const encoded = encodeState(smoothed.tech, smoothed.work);
+      book.addSample({
+        ts: new Date(at).toISOString(),
+        tech: Math.round(smoothed.tech * 1000) / 1000,
+        work: Math.round(smoothed.work * 1000) / 1000,
+        category: encoded.category,
+        zh: encoded.zh,
+        en: encoded.en,
+      });
+      last = at;
+    }
+    // remove pre-0.2 sensitive detail entries (communication apps and blurred AI chats)
+    book.retainEntries((entry) => {
+      const projection = classify(entry.app ?? null, entry.title ?? null, {
+        blurAi: this.opts.cfg.blurAi,
+        ignoreApps: this.opts.cfg.ignoreApps,
+      });
+      return !(projection.filtered || projection.blurred);
+    });
+    this.lastSampleAt = last;
   }
 
   /* ---------- tools ---------- */

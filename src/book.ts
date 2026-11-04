@@ -130,6 +130,20 @@ export class DiaryBook {
     return this.entries.filter((entry) => localParts(entry.ts, this.timezone).day === key);
   }
 
+  /** All detail entries, oldest first (used by the 0.1 → 0.2 state backfill). */
+  chronological(): DiaryEntry[] {
+    return this.entries.slice().sort((a, b) => a.cursor - b.cursor);
+  }
+
+  /** Drop entries that fail the predicate (privacy migration) and keep the cursor. */
+  retainEntries(keep: (entry: DiaryEntry) => boolean): number {
+    const removed = this.entries.filter((entry) => !keep(entry));
+    if (removed.length === 0) return 0;
+    this.entries = this.entries.filter((entry) => keep(entry));
+    writeFileSync(join(this.dir, ENTRIES), this.entries.map((entry) => `${JSON.stringify(entry)}\n`).join(''), 'utf8');
+    return removed.length;
+  }
+
   /** Newest detail entries first (explicit recall only). */
   recent(limit = 100): DiaryEntry[] {
     return this.entries.slice(-Math.max(1, limit)).reverse();

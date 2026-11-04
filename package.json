@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-screen-diary",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "活动日记：消费窥屏助手的事件流，把工作状态投影到二维空间并平滑；细节会淡忘，只留大概。需要 cortico-world-screen-sense。",
   "author": "Wwhois163wW",
@@ -31,7 +31,7 @@
     "locales": {
       "en": {
         "displayName": "Activity Diary",
-        "description": "Consumes the screen-sense event stream and turns foreground switches and vision captions into a searchable timeline. Requires cortico-world-screen-sense to be installed and enabled."
+        "description": "Consumes the screen-sense event stream and projects work activity onto two smoothed axes (technical weight, work/entertainment); details fade, only the gist remains. Requires cortico-world-screen-sense."
       }
     },
     "describe": "describe.json",

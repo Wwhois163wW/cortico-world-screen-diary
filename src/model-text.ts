@@ -1,30 +1,40 @@
-/** 这个 World 让模型读到的文本：日记工具的回执，中英各一份。 */
+/** 这个 World 让模型读到的文本：状态、轨迹与显式回忆的回执，中英各一份。 */
 import type { DiaryEntry } from './book.ts';
 
 const zh = {
-  empty: '活动日记还没有记录。',
-  todayHead: (day: string, n: number) => `[diary] ${day} 共 ${n} 条：`,
-  line: (entry: DiaryEntry, clock: string) => {
+  empty: '活动日记还没有状态采样。',
+  state: (label: string) => `[diary] 当前状态：${label}`,
+  recentHead: (n: number) => `[diary] 最近 ${n} 个状态采样：`,
+  recentLine: (clock: string, label: string) => `${clock} ${label}`,
+  todayHead: (day: string) => `[diary] ${day} 的平滑状态：`,
+  binLine: (range: string, label: string) => `${range} ${label}`,
+  noSamples: '这一天还没有状态采样。',
+  searchHead: (keyword: string, n: number) => `[diary] 显式回忆：匹配「${keyword}」的最近 ${n} 条细节：`,
+  noMatch: (keyword: string) => `日记里没有匹配「${keyword}」的细节记录。`,
+  detailLine: (entry: DiaryEntry, clock: string) => {
     const app = entry.app ? `${entry.app}${entry.title ? `(${entry.title})` : ''}:` : '';
     return `${clock} ${app}${entry.caption ?? entry.text}`;
   },
-  noMatch: (keyword: string) => `日记里没有匹配「${keyword}」的记录。`,
-  searchHead: (keyword: string, n: number) => `[diary] 匹配「${keyword}」的最近 ${n} 条：`,
-  stats: (days: number, total: number, top: Array<{ app: string; count: number }>) =>
-    `[diary] ${days} 天共 ${total} 条` + (top.length ? `；最常出现：${top.map((item) => `${item.app} ${item.count} 次`).join('、')}` : '。'),
+  stats: (days: number, samples: number, top: Array<{ label: string; count: number }>) =>
+    `[diary] ${days} 天、${samples} 个状态采样` + (top.length ? `；主要状态：${top.map((item) => `${item.label} ${item.count}`).join('、')}` : '。'),
 };
 
 const en: typeof zh = {
-  empty: 'The activity diary has no entries yet.',
-  todayHead: (day, n) => `[diary] ${day}, ${n} entries:`,
-  line: (entry, clock) => {
+  empty: 'The activity diary has no state samples yet.',
+  state: (label) => `[diary] Current state: ${label}`,
+  recentHead: (n) => `[diary] The ${n} most recent state samples:`,
+  recentLine: (clock, label) => `${clock} ${label}`,
+  todayHead: (day) => `[diary] Smoothed states for ${day}:`,
+  binLine: (range, label) => `${range} ${label}`,
+  noSamples: 'No state samples for that day yet.',
+  searchHead: (keyword, n) => `[diary] Explicit recall: the ${n} most recent detail matches for "${keyword}":`,
+  noMatch: (keyword) => `No detail entries match "${keyword}".`,
+  detailLine: (entry, clock) => {
     const app = entry.app ? `${entry.app}${entry.title ? ` (${entry.title})` : ''}: ` : '';
     return `${clock} ${app}${entry.caption ?? entry.text}`;
   },
-  noMatch: (keyword) => `No diary entries match "${keyword}".`,
-  searchHead: (keyword, n) => `[diary] The ${n} most recent matches for "${keyword}":`,
-  stats: (days, total, top) =>
-    `[diary] ${total} entries across ${days} days` + (top.length ? `; most seen: ${top.map((item) => `${item.app} (${item.count})`).join(', ')}` : '.'),
+  stats: (days, samples, top) =>
+    `[diary] ${days} days, ${samples} state samples` + (top.length ? `; main states: ${top.map((item) => `${item.label} ${item.count}`).join(', ')}` : '.'),
 };
 
 export type ModelLanguage = 'zh' | 'en';

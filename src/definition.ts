@@ -14,9 +14,11 @@ const DESCRIBE: WorldDescribe = {
   tools: describeTools(
     SCREEN_DIARY_TOOL_DECLS.map(({ name, description, parameters, tags }) => ({ name, description, parameters, tags })),
     {
-      diary_today: { zh: '按天读活动日记，默认今天，按小时列出前台切换与视觉速写。', en: 'Reads one day of the activity diary, today by default.' },
-      diary_search: { zh: '按应用名、窗口标题、速写或正文搜索活动日记。', en: 'Searches the diary by app, title, caption or text.' },
-      diary_stats: { zh: '报日记总条数、覆盖天数与最常出现的应用。', en: 'Reports counts, days covered and the most seen apps.' },
+      diary_state: { zh: '读当前平滑后的活动状态与最近采样。', en: 'Reads the current smoothed activity state and recent samples.' },
+      diary_recent: { zh: '读最近 10 个平滑状态采样，新的在前。', en: 'Reads the most recent smoothed state samples, newest first.' },
+      diary_today: { zh: '按半小时分桶读某天的平滑状态，默认今天。', en: 'Reads one day of smoothed state in half-hour bins, today by default.' },
+      diary_search: { zh: '显式回忆：在短期细节记录里搜索应用名、标题或速写。', en: 'Explicit recall over short-lived detail entries.' },
+      diary_stats: { zh: '报覆盖天数、状态采样数与主要状态。', en: 'Reports days, state samples and dominant states.' },
     },
   ),
   events: [],

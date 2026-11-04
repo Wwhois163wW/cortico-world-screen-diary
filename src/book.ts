@@ -1,7 +1,8 @@
-/** Diary storage: event entries on disk, grouped by local day and hour. */
+/** Diary storage: short-lived detail entries, long-lived smoothed state samples, and the read cursor. */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EventEnvelope } from 'cortico/core/types.ts';
+import type { Category } from './state.ts';
 
 export interface DiaryEntry {
   cursor: number;
@@ -11,9 +12,23 @@ export interface DiaryEntry {
   app?: string;
   title?: string;
   caption?: string;
+  category?: Category;
+  tech?: number;
+  work?: number;
+}
+
+/** One smoothed point of the two-axis state; details fade, these stay longer. */
+export interface StateSample {
+  ts: string;
+  tech: number;
+  work: number;
+  category: Category;
+  zh: string;
+  en: string;
 }
 
 const ENTRIES = 'entries.jsonl';
+const SAMPLES = 'samples.jsonl';
 const CURSOR = 'cursor.json';
 
 /** Local day (`YYYY-MM-DD`) and hour (`00`–`23`) of an ISO timestamp in the deployment timezone. */
@@ -43,17 +58,22 @@ export function entryOf(event: EventEnvelope): DiaryEntry {
   };
 }
 
-/** Entries in memory, appended to `entries.jsonl`; the read cursor survives restarts in `cursor.json`. */
+/** Entries are pruned after `detailHours`; smoothed samples survive `keepDays`. */
 export class DiaryBook {
   private entries: DiaryEntry[] = [];
+  private stateSamples: StateSample[] = [];
   private lastCursor = 0;
 
-  constructor(private readonly dir: string, private readonly timezone: string, private readonly keepDays: number) {
+  constructor(
+    private readonly dir: string,
+    private readonly timezone: string,
+    private readonly keepDays: number,
+    private readonly detailHours = 72,
+  ) {
     mkdirSync(dir, { recursive: true });
     this.load();
   }
 
-  /** The last event cursor already imported. */
   get cursor(): number {
     return this.lastCursor;
   }
@@ -62,35 +82,60 @@ export class DiaryBook {
     return this.entries.length;
   }
 
-  /** Import events, persist new entries and advance the cursor even when an event is filtered out. */
-  ingest(events: readonly EventEnvelope[]): number {
-    const cutoff = Date.now() - Math.max(1, this.keepDays) * 86_400_000;
+  get sampleCount(): number {
+    return this.stateSamples.length;
+  }
+
+  /**
+   * Import events and advance the cursor even when `transform` drops an event (privacy filter).
+   * Events older than `detailHours` only advance the cursor.
+   */
+  ingest(events: readonly EventEnvelope[], transform?: (entry: DiaryEntry) => DiaryEntry | null): number {
+    const cutoff = Date.now() - Math.max(1, this.detailHours) * 3_600_000;
     let added = 0;
     for (const event of events) {
       this.lastCursor = Math.max(this.lastCursor, event.cursor);
       if (Date.parse(event.ts) < cutoff) continue;
-      const entry = entryOf(event);
+      const entry = transform ? transform(entryOf(event)) : entryOf(event);
+      if (!entry) continue;
       this.entries.push(entry);
       appendFileSync(join(this.dir, ENTRIES), `${JSON.stringify(entry)}\n`, 'utf8');
       added += 1;
     }
     writeFileSync(join(this.dir, CURSOR), JSON.stringify({ cursor: this.lastCursor }), 'utf8');
-    if (added) this.prune(cutoff);
+    if (added) this.pruneEntries(cutoff);
     return added;
   }
 
-  /** Entries of one local day, oldest first; today when `day` is omitted. */
+  /** Persist one smoothed state point; the World decides how often to sample. */
+  addSample(sample: StateSample): void {
+    this.stateSamples.push(sample);
+    appendFileSync(join(this.dir, SAMPLES), `${JSON.stringify(sample)}\n`, 'utf8');
+  }
+
+  /** Newest samples first. */
+  samples(limit = 200): StateSample[] {
+    return this.stateSamples.slice(-Math.max(1, limit)).reverse();
+  }
+
+  /** Samples of one local day, oldest first; today when `day` is omitted. */
+  samplesOfDay(day?: string): StateSample[] {
+    const key = day ?? localParts(new Date().toISOString(), this.timezone).day;
+    return this.stateSamples.filter((sample) => localParts(sample.ts, this.timezone).day === key);
+  }
+
+  /** Entries of one local day, oldest first. */
   day(day?: string): DiaryEntry[] {
     const key = day ?? localParts(new Date().toISOString(), this.timezone).day;
     return this.entries.filter((entry) => localParts(entry.ts, this.timezone).day === key);
   }
 
-  /** Newest entries first. */
+  /** Newest detail entries first (explicit recall only). */
   recent(limit = 100): DiaryEntry[] {
     return this.entries.slice(-Math.max(1, limit)).reverse();
   }
 
-  /** Newest matches first; the keyword is matched case-insensitively across app, title, caption and text. */
+  /** Explicit text search over short-lived detail entries; newest matches first. */
   search(keyword: string, limit = 20): DiaryEntry[] {
     const needle = keyword.trim().toLowerCase();
     if (!needle) return [];
@@ -103,25 +148,28 @@ export class DiaryBook {
     return hits;
   }
 
-  stats(now = Date.now()): { total: number; days: number; topApps: Array<{ app: string; count: number }> } {
+  stats(now = Date.now()): { total: number; days: number; samples: number; topApps: Array<{ app: string; count: number }> } {
     const daySet = new Set<string>();
     const appCounts = new Map<string, number>();
     for (const entry of this.entries) {
       daySet.add(localParts(entry.ts, this.timezone).day);
       if (entry.app) appCounts.set(entry.app, (appCounts.get(entry.app) ?? 0) + 1);
     }
+    for (const sample of this.stateSamples) daySet.add(localParts(sample.ts, this.timezone).day);
     const topApps = [...appCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([app, count]) => ({ app, count }));
-    return { total: this.entries.length, days: daySet.size, topApps };
+    return { total: this.entries.length, days: daySet.size, samples: this.stateSamples.length, topApps };
   }
 
-  /** Drop every entry but keep the read cursor, so old events are not imported again. */
+  /** Drop detail entries and samples, keeping the read cursor. */
   clear(): number {
-    const removed = this.entries.length;
+    const removed = this.entries.length + this.stateSamples.length;
     this.entries = [];
+    this.stateSamples = [];
     writeFileSync(join(this.dir, ENTRIES), '', 'utf8');
+    writeFileSync(join(this.dir, SAMPLES), '', 'utf8');
     return removed;
   }
 
@@ -133,23 +181,40 @@ export class DiaryBook {
         if (typeof state.cursor === 'number') this.lastCursor = state.cursor;
       } catch { /* a broken cursor file starts from zero */ }
     }
-    const entriesFile = join(this.dir, ENTRIES);
-    if (!existsSync(entriesFile)) return;
-    const cutoff = Date.now() - Math.max(1, this.keepDays) * 86_400_000;
-    for (const line of readFileSync(entriesFile, 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line) as DiaryEntry;
-        if (typeof entry.cursor === 'number' && typeof entry.ts === 'string' && Date.parse(entry.ts) >= cutoff) this.entries.push(entry);
-      } catch { /* skip a torn line */ }
-    }
-    this.prune(cutoff);
+    this.loadLines(ENTRIES, (value) => this.entries.push(value as DiaryEntry), this.detailCutoff());
+    this.loadLines(SAMPLES, (value) => this.stateSamples.push(value as StateSample), Date.now() - Math.max(1, this.keepDays) * 86_400_000);
+    this.pruneEntries(this.detailCutoff());
+    this.pruneSamples();
   }
 
-  private prune(cutoff: number): void {
+  private loadLines(file: string, push: (value: unknown) => void, cutoff: number): void {
+    const path = join(this.dir, file);
+    if (!existsSync(path)) return;
+    for (const line of readFileSync(path, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const value = JSON.parse(line) as { ts?: unknown };
+        if (typeof value.ts === 'string' && Date.parse(value.ts) >= cutoff) push(value);
+      } catch { /* skip a torn line */ }
+    }
+  }
+
+  private detailCutoff(): number {
+    return Date.now() - Math.max(1, this.detailHours) * 3_600_000;
+  }
+
+  private pruneEntries(cutoff: number): void {
     const kept = this.entries.filter((entry) => Date.parse(entry.ts) >= cutoff);
     if (kept.length === this.entries.length) return;
     this.entries = kept;
     writeFileSync(join(this.dir, ENTRIES), kept.map((entry) => `${JSON.stringify(entry)}\n`).join(''), 'utf8');
+  }
+
+  private pruneSamples(): void {
+    const cutoff = Date.now() - Math.max(1, this.keepDays) * 86_400_000;
+    const kept = this.stateSamples.filter((sample) => Date.parse(sample.ts) >= cutoff);
+    if (kept.length === this.stateSamples.length) return;
+    this.stateSamples = kept;
+    writeFileSync(join(this.dir, SAMPLES), kept.map((sample) => `${JSON.stringify(sample)}\n`).join(''), 'utf8');
   }
 }

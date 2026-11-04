@@ -89,6 +89,20 @@ pnpm describe:extension <本包目录>
 pnpm check:extension <本包目录>
 ```
 
+## 发布
+
+本包目前**手动发布**，不依赖 tag / 可信发布：
+
+```bash
+pnpm install
+pnpm run typecheck
+pnpm run test
+pnpm run build
+npm publish --access public
+```
+
+> 仓库没有自动发布 workflow；不要给本包打 `v*` tag，直接 `npm publish` 即可，它会先跑 `prepublishOnly` 检查。
+
 ## 许可
 
 AGPL-3.0-or-later。

@@ -177,6 +177,14 @@ export class ScreenDiaryWorld implements World {
             : 'Seen applications: inspect the default category and override the category or flow decay per app.',
           getMethods: ['apps', 'setApp'],
         },
+        {
+          id: 'developer',
+          title: language === 'zh' || language === 'zh-Hant' ? '开发者选项' : 'Developer options',
+          description: language === 'zh' || language === 'zh-Hant'
+            ? '诊断与规则状态；后续的规则编辑会放在这里。'
+            : 'Diagnostics and rule status; rule editing will live here next.',
+          getMethods: ['diagnostics'],
+        },
       ],
       invoke: (panel, method, args) => this.invoke(panel, method, args),
       config: [diaryConfigGroup(language)],
@@ -536,7 +544,7 @@ export class ScreenDiaryWorld implements World {
   /* ---------- panel ---------- */
 
   private async invoke(panel: string, method: string, args: unknown[]): Promise<unknown> {
-    if (panel !== 'timeline' && panel !== 'apps') return null;
+    if (panel !== 'timeline' && panel !== 'apps' && panel !== 'developer') return null;
     const book = this.book;
     switch (method) {
       case 'state': {
@@ -563,6 +571,42 @@ export class ScreenDiaryWorld implements World {
         const keyword = typeof args[0] === 'string' ? args[0] : '';
         const limit = typeof args[1] === 'number' && Number.isFinite(args[1]) ? Math.min(50, Math.max(1, Math.round(args[1]))) : 20;
         return { entries: (book?.search(keyword, limit) ?? []).map((entry) => this.view(entry)) };
+      }
+      case 'diagnostics': {
+        const flow = this.flow;
+        const now = Date.now();
+        return {
+          flow: {
+            state: flow?.current ?? 'idle',
+            lastSwitchAt: flow?.lastSwitchAt ?? 0,
+            gapMs: flow?.lastSwitchAt ? now - flow.lastSwitchAt : 0,
+            decayMs: flow?.decayMs() ?? 0,
+            category: flow?.category ?? 'neutral',
+            checkInEnabled: this.opts.cfg.checkInEnabled,
+            baseDecayMinutes: this.opts.cfg.flowDecayMinutes,
+            awayAfterMinutes: this.opts.cfg.awayAfterMinutes,
+            checkInCooldownMinutes: this.opts.cfg.checkInCooldownMinutes,
+          },
+          config: {
+            source: this.opts.cfg.source,
+            sampleSec: this.opts.cfg.sampleSec,
+            detailHours: this.opts.cfg.detailHours,
+            keepDays: this.opts.cfg.keepDays,
+            smoothing: this.opts.cfg.smoothing,
+            blurAi: this.opts.cfg.blurAi,
+            ignoreApps: this.opts.cfg.ignoreApps,
+          },
+          counts: {
+            apps: this.catalog?.list().length ?? 0,
+            samples: this.book?.sampleCount ?? 0,
+            entries: this.book?.size ?? 0,
+            cursor: this.book?.cursor ?? 0,
+          },
+          rules: [
+            { id: 'reengage', enabled: true, action: 'screen-diary.reengage', trigger: 'piggyback', title: '长静默后回来' },
+            { id: 'checkin', enabled: this.opts.cfg.checkInEnabled, action: 'screen-diary.checkin', trigger: 'debounce', title: '流枯竭时主动搭话' },
+          ],
+        };
       }
       case 'apps':
         return {

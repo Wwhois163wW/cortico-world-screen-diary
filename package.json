@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-screen-diary",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "description": "活动日记：消费窥屏助手的事件流，把工作状态投影到二维空间并平滑；细节会淡忘，只留大概。需要 cortico-world-screen-sense。",
   "author": "Wwhois163wW",

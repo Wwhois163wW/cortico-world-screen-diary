@@ -1,4 +1,4 @@
-/** 这个 World 让模型读到的文本：状态、轨迹与显式回忆的回执，中英各一份。 */
+/** 这个 World 让模型读到的文本：状态、轨迹、在场切换与显式回忆的回执，中英各一份。 */
 import type { DiaryEntry } from './book.ts';
 
 const zh = {
@@ -15,6 +15,8 @@ const zh = {
     const app = entry.app ? `${entry.app}${entry.title ? `(${entry.title})` : ''}:` : '';
     return `${clock} ${app}${entry.caption ?? entry.text}`;
   },
+  reengage: (gap: string, category: string) => `[presence] 安静了 ${gap} 后回到${category}。`,
+  checkin: (gap: string, category: string) => `[presence] 已经 ${gap} 没有窗口切换，可能专注或离开（最后在${category}）。可以提醒休息，或轻声确认。`,
   stats: (days: number, samples: number, top: Array<{ label: string; count: number }>) =>
     `[diary] ${days} 天、${samples} 个状态采样` + (top.length ? `；主要状态：${top.map((item) => `${item.label} ${item.count}`).join('、')}` : '。'),
 };
@@ -33,6 +35,8 @@ const en: typeof zh = {
     const app = entry.app ? `${entry.app}${entry.title ? ` (${entry.title})` : ''}: ` : '';
     return `${clock} ${app}${entry.caption ?? entry.text}`;
   },
+  reengage: (gap, category) => `[presence] Back to ${category} after ${gap} of quiet.`,
+  checkin: (gap, category) => `[presence] ${gap} without a window switch; possibly focused or away (last: ${category}). A break reminder or a soft check-in fits.`,
   stats: (days, samples, top) =>
     `[diary] ${days} days, ${samples} state samples` + (top.length ? `; main states: ${top.map((item) => `${item.label} ${item.count}`).join(', ')}` : '.'),
 };

@@ -8,7 +8,7 @@
  * default. Nothing here keeps window titles: only a category and two numbers leave this module.
  */
 
-export type Category = 'develop' | 'game' | 'office' | 'video' | 'browser' | 'ai' | 'neutral';
+export type Category = 'develop' | 'game' | 'casual' | 'office' | 'video' | 'browser' | 'ai' | 'neutral';
 
 export interface Projection {
   category: Category;
@@ -33,6 +33,7 @@ const COMMUNICATION = /wechat|weixin|\bqq\b|tim\.exe|discord|telegram|slack|team
 const AI_CHAT = /chatgpt|openai|claude|gemini|copilot|deepseek|kimi|doubao|yuanbao|chatbox|\bpoe\b|character\.ai|lm studio|ollama/i;
 const DEVELOP = /code|vscode|cursor|idea|pycharm|webstorm|rider|goland|terminal|powershell|\bcmd\b|bash|wsl|git|docker|kubernetes|github|npm|pnpm|node|python|java|rust|unity|unreal|blender|postman|insomnia/i;
 const GAME = /steam|game|league|valorant|minecraft|elden|genshin|honkai|starrail|epicgames|battle\.net|wegame|ubisoft|rockstar|riot/i;
+const CASUAL = /gacha|抽卡|放置|挂机|afk|clicker|idle game|养成|放置类/i;
 const OFFICE = /word|excel|powerpoint|onenote|notion|obsidian|acrobat|\bpdf\b|wps|libreoffice|office|docs|excel/i;
 const VIDEO = /bilibili|youtube|netflix|iqiyi|youku|qqvideo|tencentvideo|\bvlc\b|mpv|potplayer|disney|primevideo|twitch|spotify|music/i;
 const BROWSER = /chrome|edge|firefox|safari|brave|opera|chromium/i;
@@ -115,4 +116,15 @@ export function formatSpan(ms: number, language: 'zh' | 'en' = 'zh'): string {
   const rest = minutes % 60;
   if (language === 'en') return hours ? `${hours}h ${rest}m` : `${rest}m`;
   return hours ? `${hours} 小时 ${rest} 分` : `${rest} 分`;
+}
+
+/** Human label for a category in event text. */
+export function categoryLabel(category: Category, language: 'zh' | 'en'): string {
+  const zh: Record<Category, string> = {
+    develop: '开发', game: '游戏', casual: '挂机/轻娱乐', office: '文书', video: '视频', browser: '浏览器', ai: 'AI', neutral: '中性',
+  };
+  const en: Record<Category, string> = {
+    develop: 'development', game: 'gaming', casual: 'casual gaming', office: 'documents', video: 'video', browser: 'browser', ai: 'AI', neutral: 'neutral',
+  };
+  return (language === 'en' ? en : zh)[category] ?? category;
 }

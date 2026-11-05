@@ -33,6 +33,17 @@ cortico-world-screen-diary
 | 视频 | bilibili、YouTube、播放器 | -0.5 | -0.8 |
 | 浏览器 | Chrome/Edge | 按标题推断，默认 (0,0) | |
 
+## 流枯竭：搭话时机，不是监控
+
+不使用键鼠钩子，也不做全局输入监听；只利用**前台窗口切换的时间梯度**：
+
+- 切换密集 = `busy`，不打扰
+- 静默超过该应用的**衰退窗口** = `depleted`（专注或离开，不强行区分）
+- `depleted` 后出现新切换 = `screen-diary.reengage`（piggyback），Coo 可以说“回来啦”
+- 进入 `depleted` 时若开启主动搭话，发 `screen-diary.checkin`（debounce，默认关闭，带冷却）；之后仍无切换则内部确认 `away`，不再发事件
+
+衰退窗口按应用类型乘倍率：开发/文书 20 分钟、视频 30 分钟、游戏 12 分钟、浏览器 8 分钟（基准可配）。flow 状态只服务当次交互，不进入雷达、不做长期画像。
+
 ## 隐私与遗忘
 
 - **通讯类直接过滤**：微信、QQ、Discord、Telegram、Slack、Teams、Zoom、邮件客户端等不投影、不落盘、不进入状态。
@@ -58,6 +69,13 @@ cortico-world-screen-diary
 | `diary_search` | **显式回忆**：在短期细节记录里搜应用/标题/速写，最多 5 条 |
 | `diary_stats` | 覆盖天数、状态采样数、主要状态 |
 
+## 事件
+
+| 事件 | 触发 | 默认 |
+| --- | --- | --- |
+| `screen-diary.reengage` | 长静默后重新出现窗口切换 | 开（piggyback） |
+| `screen-diary.checkin` | 流枯竭且开启主动搭话 | 关（debounce，冷却 60 分钟） |
+
 ## 配置（`worlds.screen-diary.*`）
 
 | 键 | 默认 | 含义 |
@@ -73,6 +91,10 @@ cortico-world-screen-diary
 | `sampleSec` | `30` | 两次状态采样最小间隔 |
 | `source` | `screen-sense` | 生产方 World id |
 | `maxEventsPerPoll` | `500` | 单次导入上限 |
+| `flowDecayMinutes` | `20` | 流枯竭基准窗口，按应用类型乘倍率 |
+| `checkInEnabled` | `false` | 流枯竭时是否允许 Coo 主动搭话 |
+| `awayAfterMinutes` | `10` | 搭话后仍无切换，多久确认离开 |
+| `checkInCooldownMinutes` | `60` | 两次主动搭话的最小间隔 |
 
 ## 隐私
 

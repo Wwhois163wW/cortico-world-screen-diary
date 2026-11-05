@@ -9,4 +9,4 @@ Rules:
 - Use `diary_search` only when exact detail matters. Reaction and thinking do not need precise recall; a rough picture with small inaccuracies is fine.
 - Communication apps are filtered; AI chats are blurred to neutral by default. Do not ask about or guess those.
 - The diary keeps no images; when a picture matters, use the producer's `screen_photo_show`.
-- An empty diary means screen-sense is not installed, not enabled, or has no events yet; do not retry in a loop.
+- screen-diary.reengage means the person came back after quiet time; a light greeting fits, without follow-up questions.\n- screen-diary.checkin means the flow depleted and they may be focused or away; offer a break or a soft check-in once.\n- An empty diary means screen-sense is not installed, not enabled, or has no events yet; do not retry in a loop.

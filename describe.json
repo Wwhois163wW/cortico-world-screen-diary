@@ -102,13 +102,28 @@
       }
     }
   ],
-  "events": [],
+  "events": [
+    {
+      "type": "screen-diary.reengage",
+      "description": {
+        "zh": "窗口切换打断了专注或离开：用户回来了，适合轻声搭话。",
+        "en": "A window switch interrupted focus or absence: the user is back, a good moment for a light greeting."
+      }
+    },
+    {
+      "type": "screen-diary.checkin",
+      "description": {
+        "zh": "流枯竭后的可选主动搭话（默认关闭，有冷却）。",
+        "en": "An optional proactive check-in when the flow depletes (off by default, rate limited)."
+      }
+    }
+  ],
   "prompts": [
     {
       "key": "worlds.screen-diary.envPrompt",
       "title": "活动日记",
       "role": "envPrompt",
-      "content": "## 活动日记\n\n你有一条由另一个 World（窥屏助手）的事件流整理出的“活动记忆”：前台切换被投影到二维状态空间（技术重度/轻度 × 工作/娱乐），再做平滑；细节只短期保留。\n\n规则：\n\n- 想判断使用者现在在干什么，用 `diary_state`；想看最近变化，用 `diary_recent`。\n- 想粗略回顾某天，用 `diary_today`（半小时分桶）；它是模糊的，不要拿它当精确时间表。\n- 只有需要精确细节时才用 `diary_search`。平时的反应与思考不需要精确回忆，允许概括与轻微出入。\n- 通讯类应用已被过滤，AI 对话默认模糊为中性；不要追问或猜测这些内容。\n- 日记不保存原图；需要画面细节时用窥屏助手的 `screen_photo_show`。\n- 日记为空说明窥屏助手未安装、未启用或还没产生事件；不要反复重试。\n"
+      "content": "## 活动日记\n\n你有一条由另一个 World（窥屏助手）的事件流整理出的“活动记忆”：前台切换被投影到二维状态空间（技术重度/轻度 × 工作/娱乐），再做平滑；细节只短期保留。\n\n规则：\n\n- 想判断使用者现在在干什么，用 `diary_state`；想看最近变化，用 `diary_recent`。\n- 想粗略回顾某天，用 `diary_today`（半小时分桶）；它是模糊的，不要拿它当精确时间表。\n- 只有需要精确细节时才用 `diary_search`。平时的反应与思考不需要精确回忆，允许概括与轻微出入。\n- 通讯类应用已被过滤，AI 对话默认模糊为中性；不要追问或猜测这些内容。\n- 日记不保存原图；需要画面细节时用窥屏助手的 `screen_photo_show`。\n- screen-diary.reengage 表示对方在安静一段时间后回来了，适合轻声打招呼，不要连续追问。\\n- screen-diary.checkin 表示流枯竭、可能在专注或离开；可以提醒休息或轻声确认，一次就够。\\n- 日记为空说明窥屏助手未安装、未启用或还没产生事件；不要反复重试。\n"
     }
   ]
 }

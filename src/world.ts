@@ -3,6 +3,7 @@
  * projects each non-private foreground app onto two axes (technical weight, work/entertainment),
  * smooths the trajectory and keeps the gist; window titles only survive for `detailHours`.
  */
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Language } from 'cortico/core/language.ts';
@@ -11,7 +12,8 @@ import { shortTime } from 'cortico/core/util.ts';
 import { DiaryBook, type DiaryEntry } from './book.ts';
 import { diaryConfigGroup, diaryPanelText, diaryStorageText, type DiaryConfigSection } from './config.ts';
 import { MODEL_TEXT, type ModelLanguage, type ModelText } from './model-text.ts';
-import { classify, encodeState, StateFilter } from './state.ts';
+import { classify, encodeState, StateFilter, categoryLabel } from './state.ts';
+import { FlowModel, gapText, type FlowSnapshot } from './flow.ts';
 
 const ENV_PROMPT_FILES: Record<ModelLanguage, string> = {
   zh: fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url)),
@@ -83,6 +85,8 @@ export class ScreenDiaryWorld implements World {
   private timer: ReturnType<typeof setInterval> | null = null;
   private busy = false;
   private lastSampleAt = 0;
+  private flow: FlowModel | null = null;
+  private flowActions: Array<{ type: 'reengage' | 'checkin'; text: string; meta: Record<string, unknown> }> = [];
 
   constructor(private readonly opts: DiaryOptions) {}
 
@@ -111,6 +115,14 @@ export class ScreenDiaryWorld implements World {
       this.lastSampleAt = Date.parse(latest.ts) || 0;
     }
     if (this.book.sampleCount === 0 && this.book.size > 0) this.backfill(this.book);
+    this.flow = new FlowModel({
+      baseDecayMinutes: this.opts.cfg.flowDecayMinutes,
+      checkInEnabled: this.opts.cfg.checkInEnabled,
+      awayAfterMinutes: this.opts.cfg.awayAfterMinutes,
+      checkInCooldownMinutes: this.opts.cfg.checkInCooldownMinutes,
+    });
+    this.flow.restore(this.readFlow());
+    if (this.flow.lastSwitchAt === 0) this.seedFlow();
     if (!this.opts.cfg.enabled) return;
     void this.poll();
     this.timer = setInterval(() => { void this.poll(); }, Math.max(1000, this.opts.cfg.pollMs));
@@ -120,6 +132,8 @@ export class ScreenDiaryWorld implements World {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.book = null;
+    this.flow = null;
+    this.flowActions = [];
     this.filter = null;
     this.host = null;
   }
@@ -161,7 +175,22 @@ export class ScreenDiaryWorld implements World {
     this.busy = true;
     try {
       const latest = host.store.latestCursor();
-      if (latest <= book.cursor) return;
+      if (this.flow) {
+        const tick = this.flow.tick(Date.now());
+        if (tick.checkIn) {
+          const gap = Date.now() - this.flow.lastSwitchAt;
+          this.flowActions.push({
+            type: 'checkin',
+            text: this.t.checkin(gapText(gap, this.modelLanguage()), categoryLabel(this.flow.category, this.modelLanguage())),
+            meta: { kind: 'checkin', gapMs: gap },
+          });
+        }
+        this.saveFlow();
+      }
+      if (latest <= book.cursor) {
+        await this.flushFlow();
+        return;
+      }
       const source = this.opts.cfg.source.trim() || 'screen-sense';
       const limit = Math.max(1, this.opts.cfg.maxEventsPerPoll);
       const events: EventEnvelope[] = book.cursor === 0
@@ -169,6 +198,7 @@ export class ScreenDiaryWorld implements World {
         : host.store.range({ fromCursor: book.cursor + 1, toCursor: latest, source, limit });
       if (events.length === 0) return;
       book.ingest(events, (entry) => this.project(entry, filter));
+      await this.flushFlow();
     } catch (err) {
       this.host?.log.child('diary').warn('读取事件流失败', { err: errText(err) });
     } finally {
@@ -199,6 +229,26 @@ export class ScreenDiaryWorld implements World {
       });
       this.lastSampleAt = at;
     }
+    const flow = this.flow;
+    if (flow && entry.type.endsWith('.focus')) {
+      const result = flow.observeSwitch(at, projection.category);
+      if (result.reengage) {
+        this.flowActions.push({
+          type: 'reengage',
+          text: this.t.reengage(
+            gapText(result.reengage.gapMs, this.modelLanguage()),
+            categoryLabel(result.reengage.previousCategory, this.modelLanguage()),
+          ),
+          meta: {
+            kind: 'reengage',
+            gapMs: result.reengage.gapMs,
+            previousCategory: result.reengage.previousCategory,
+          },
+        });
+      }
+      this.saveFlow();
+    }
+
     return { ...entry, category: projection.category, tech: projection.tech, work: projection.work };
   }
 
@@ -238,6 +288,73 @@ export class ScreenDiaryWorld implements World {
       return !(projection.filtered || projection.blurred);
     });
     this.lastSampleAt = last;
+  }
+
+  private flowPath(): string {
+    return join(this.opts.dataDir, 'diary', 'flow.json');
+  }
+
+  private readFlow(): FlowSnapshot | null {
+    try {
+      return JSON.parse(readFileSync(this.flowPath(), 'utf8')) as FlowSnapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  private saveFlow(): void {
+    if (!this.flow) return;
+    try {
+      writeFileSync(this.flowPath(), JSON.stringify(this.flow.snapshot()), 'utf8');
+    } catch {
+      /* the flow state is transient; a failed save is not fatal */
+    }
+  }
+
+  /** After a restart, seed the flow clock from the latest accepted switch so it is not "busy". */
+  private seedFlow(): void {
+    if (!this.book || !this.flow) return;
+    const flow = this.flow;
+    const entries = this.book.chronological();
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const entry = entries[i]!;
+      if (!entry.type.endsWith('.focus')) continue;
+      const at = Date.parse(entry.ts);
+      if (Number.isNaN(at)) return;
+      const projection = classify(entry.app ?? null, entry.title ?? null, {
+        blurAi: this.opts.cfg.blurAi,
+        ignoreApps: this.opts.cfg.ignoreApps,
+      });
+      if (!projection.filtered && !projection.blurred) {
+        flow.observeSwitch(at, projection.category);
+        this.saveFlow();
+      }
+      return;
+    }
+  }
+
+  /** Push queued presence events; reengage piggybacks, check-in may start a turn. */
+  private async flushFlow(): Promise<void> {
+    const host = this.host;
+    if (!host) {
+      this.flowActions = [];
+      return;
+    }
+    const actions = this.flowActions.splice(0);
+    for (const action of actions) {
+      try {
+        await host.pushEvent({
+          type: `screen-diary.${action.type}`,
+          source: this.id,
+          senderKey: `screen-diary.${action.type}`,
+          ts: new Date().toISOString(),
+          text: action.text,
+          meta: action.meta,
+        }, { trigger: action.type === 'checkin' ? 'debounce' : 'piggyback' });
+      } catch (err) {
+        this.host?.log.child('diary').warn('推送在场事件失败', { err: errText(err) });
+      }
+    }
   }
 
   /* ---------- tools ---------- */

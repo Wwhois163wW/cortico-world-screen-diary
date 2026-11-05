@@ -104,17 +104,6 @@ const timelinePanel: WebUiPanel = {
         el('line', { x1: pad, y1: cy, x2: w - pad, y2: cy, stroke: 'currentColor', 'stroke-opacity': 0.35, 'stroke-width': 1 }),
         el('line', { x1: cx, y1: pad, x2: cx, y2: h - pad, stroke: 'currentColor', 'stroke-opacity': 0.35, 'stroke-width': 1 }),
       );
-      for (const [dx, dy, text] of [[-1, 1, '开发'], [1, 1, '工作'], [-1, -1, '视频'], [1, -1, '游戏']] as const) {
-        const node = el('text', { x: dx < 0 ? pad : w - pad - 20, y: dy > 0 ? pad - 12 : h - pad + 16, fill: 'currentColor', 'fill-opacity': 0.55, 'font-size': 11 });
-        node.textContent = text;
-        chart.append(node);
-      }
-      const axisTech = el('text', { x: cx + 6, y: pad - 12, fill: 'currentColor', 'fill-opacity': 0.5, 'font-size': 10 });
-      axisTech.textContent = t.axisTech;
-      const axisWork = el('text', { x: w - pad - 24, y: cy - 6, fill: 'currentColor', 'fill-opacity': 0.5, 'font-size': 10 });
-      axisWork.textContent = t.axisWork;
-      chart.append(axisTech, axisWork);
-
       const points = state.samples.slice(-120).reverse();
       if (points.length >= 2) {
         const path = el('polyline', {

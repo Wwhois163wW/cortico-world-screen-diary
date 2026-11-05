@@ -19,6 +19,14 @@ export interface DiaryConfig {
   detailHours: number;
   /** Minimum gap between two stored state samples, seconds. */
   sampleSec: number;
+  /** Base flow-decay window in minutes (per-category multipliers apply). */
+  flowDecayMinutes: number;
+  /** Optional proactive check-in when the flow depletes; default off. */
+  checkInEnabled: boolean;
+  /** Silence after a check-in that confirms away, minutes. */
+  awayAfterMinutes: number;
+  /** At most one check-in per this many minutes. */
+  checkInCooldownMinutes: number;
 }
 
 export const DIARY_DEFAULTS: DiaryConfig = {
@@ -33,6 +41,10 @@ export const DIARY_DEFAULTS: DiaryConfig = {
   smoothing: 0.25,
   detailHours: 72,
   sampleSec: 30,
+  flowDecayMinutes: 20,
+  checkInEnabled: false,
+  awayAfterMinutes: 10,
+  checkInCooldownMinutes: 60,
 };
 
 export type DiaryConfigSection = DiaryConfig;
@@ -64,6 +76,14 @@ function diaryText(language: Language) {
     detailDesc: '窗口标题、速写与正文只保留这么久，之后只留下平滑状态。',
     sampleTitle: '采样间隔',
     sampleDesc: '两次状态采样至少隔这么多秒。',
+    flowTitle: '流枯竭窗口',
+    flowDesc: '多久没有窗口切换算专注或离开；按应用类型乘倍率（开发/文书 20 分、视频 30、游戏 12、浏览器 8）。',
+    checkInTitle: '枯竭时主动搭话',
+    checkInDesc: '流枯竭时让 Coo 可以主动提醒休息或轻声确认；默认关闭。',
+    awayTitle: '确认离开',
+    awayDesc: '搭话后仍无窗口切换，多久确认离开（只影响交互，不记入画像）。',
+    cooldownTitle: '搭话冷却',
+    cooldownDesc: '两次主动搭话至少隔多少分钟。',
     storage: {
       label: '活动日记',
       note: '删除全部细节记录与平滑状态；不会影响生产方的相册与配置。',
@@ -95,6 +115,14 @@ function diaryText(language: Language) {
     detailDesc: 'Window titles, captions and text are kept this long, then only smoothed state remains.',
     sampleTitle: 'Sample interval',
     sampleDesc: 'At least this many seconds between two stored state samples.',
+    flowTitle: 'Flow decay',
+    flowDesc: 'Silence that counts as focus or away; each app type multiplies the base (dev/office 20m, video 30m, game 12m, browser 8m).',
+    checkInTitle: 'Check in when depleted',
+    checkInDesc: 'Lets Coo offer a break or a soft nudge when the flow depletes; off by default.',
+    awayTitle: 'Confirm away',
+    awayDesc: 'After a check-in, silence this long confirms away (interaction only, not profiling).',
+    cooldownTitle: 'Check-in cooldown',
+    cooldownDesc: 'Minimum minutes between two proactive check-ins.',
     storage: {
       label: 'Activity diary',
       note: 'Deletes detail entries and smoothed state; the producer album and settings are untouched.',
@@ -204,6 +232,10 @@ export function diaryConfigGroup(language: Language = 'zh'): ConfigGroup {
         [`${K}.ignoreApps`]: { type: 'string', title: t.ignoreTitle, description: t.ignoreAppsDesc, 'x-hot': true },
         [`${K}.smoothing`]: { type: 'number', title: t.smoothingTitle, description: t.smoothingDesc, minimum: 0.05, maximum: 0.9, 'x-hot': true },
         [`${K}.sampleSec`]: { type: 'integer', title: t.sampleTitle, description: t.sampleDesc, minimum: 5, maximum: 600, 'x-suffix': 's' },
+        [`${K}.flowDecayMinutes`]: { type: 'integer', title: t.flowTitle, description: t.flowDesc, minimum: 1, maximum: 180, 'x-suffix': 'min', 'x-hot': true },
+        [`${K}.checkInEnabled`]: { type: 'boolean', title: t.checkInTitle, description: t.checkInDesc, 'x-hot': true },
+        [`${K}.awayAfterMinutes`]: { type: 'integer', title: t.awayTitle, description: t.awayDesc, minimum: 1, maximum: 120, 'x-suffix': 'min' },
+        [`${K}.checkInCooldownMinutes`]: { type: 'integer', title: t.cooldownTitle, description: t.cooldownDesc, minimum: 5, maximum: 1440, 'x-suffix': 'min' },
         [`${K}.source`]: { type: 'string', title: t.sourceTitle, description: t.sourceDesc },
         [`${K}.maxEventsPerPoll`]: { type: 'integer', title: t.maxTitle, description: t.maxDesc, minimum: 1, maximum: 5000 },
       },

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- 新增 flow 层：只用窗口切换的时间梯度判断 busy / settling / depleted / away，不监听键鼠
+- 按应用类型的衰退窗口：开发/文书 20 分、视频 30、游戏 12、浏览器 8（基准可配）
+- 事件：`screen-diary.reengage`（默认开，piggyback）与可选的 `screen-diary.checkin`（默认关闭，debounce，冷却 60 分钟）
+- 雷达去掉象限文字标签，只保留抽象轨迹
+- `casual` 挂机/轻娱乐分类
 ## 0.2.1
 
 - 升级回填：首次启动 0.2.x 时，若还没有状态采样，把 0.1.x 的旧细节按同一投影/过滤重放为状态采样

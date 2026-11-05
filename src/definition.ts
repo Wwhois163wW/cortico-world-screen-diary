@@ -21,7 +21,16 @@ const DESCRIBE: WorldDescribe = {
       diary_stats: { zh: '报覆盖天数、状态采样数与主要状态。', en: 'Reports days, state samples and dominant states.' },
     },
   ),
-  events: [],
+  events: [
+    {
+      type: 'screen-diary.reengage',
+      description: { zh: '窗口切换打断了专注或离开：用户回来了，适合轻声搭话。', en: 'A window switch interrupted focus or absence: the user is back, a good moment for a light greeting.' },
+    },
+    {
+      type: 'screen-diary.checkin',
+      description: { zh: '流枯竭后的可选主动搭话（默认关闭，有冷却）。', en: 'An optional proactive check-in when the flow depletes (off by default, rate limited).' },
+    },
+  ],
 };
 
 export function screenDiaryDefinition(assembly: DiaryAssembly = {}): WorldDefinition<DiaryConfigSection> {

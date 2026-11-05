@@ -564,6 +564,23 @@ export class ScreenDiaryWorld implements World {
         const limit = typeof args[1] === 'number' && Number.isFinite(args[1]) ? Math.min(50, Math.max(1, Math.round(args[1]))) : 20;
         return { entries: (book?.search(keyword, limit) ?? []).map((entry) => this.view(entry)) };
       }
+      case 'apps':
+        return {
+          apps: (this.catalog?.list() ?? []).map((row) => ({
+            ...row,
+            label: this.appLabel(row.category ?? row.defaultCategory),
+            defaultLabel: this.appLabel(row.defaultCategory),
+          })),
+        };
+      case 'setApp': {
+        const [appArg, categoryArg, decayArg] = args;
+        const app = typeof appArg === 'string' ? appArg : '';
+        const allowed: AppCategory[] = ['develop', 'game', 'casual', 'office', 'video', 'browser', 'ai', 'neutral', 'filtered'];
+        const category = typeof categoryArg === 'string' && categoryArg && allowed.includes(categoryArg as AppCategory) ? categoryArg as AppCategory : undefined;
+        const decay = typeof decayArg === 'number' && Number.isFinite(decayArg) ? (decayArg > 0 ? Math.round(decayArg) : 0) : undefined;
+        const record = this.catalog?.setPolicy(app, category, decay);
+        return { record: record ?? null };
+      }
       case 'clear':
         return { removed: this.clear() };
       default:

@@ -15,6 +15,7 @@ import { MODEL_TEXT, type ModelLanguage, type ModelText } from './model-text.ts'
 import { classify, encodeState, StateFilter, categoryLabel, projectionFor } from './state.ts';
 import { FlowModel, gapText, type FlowSnapshot } from './flow.ts';
 import { AppCatalog, type AppCategory } from './apps.ts';
+import { TokenCatalog, tokenize } from './tokens.ts';
 
 const ENV_PROMPT_FILES: Record<ModelLanguage, string> = {
   zh: fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url)),
@@ -108,6 +109,7 @@ export class ScreenDiaryWorld implements World {
   private lastSampleAt = 0;
   private flow: FlowModel | null = null;
   private catalog: AppCatalog | null = null;
+  private tokenCatalog: TokenCatalog | null = null;
   private flowActions: Array<{ type: 'reengage' | 'checkin'; text: string; meta: Record<string, unknown> }> = [];
 
   constructor(private readonly opts: DiaryOptions) {}
@@ -133,6 +135,7 @@ export class ScreenDiaryWorld implements World {
     this.host = host;
     this.book = new DiaryBook(join(this.opts.dataDir, 'diary'), this.opts.timezone, Math.max(1, this.opts.cfg.keepDays), Math.max(1, this.opts.cfg.detailHours));
     this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
+    this.tokenCatalog = new TokenCatalog(join(this.opts.dataDir, 'diary'));
     this.filter = new StateFilter(this.opts.cfg.smoothing);
     const latest = this.book.samples(1)[0];
     if (latest) {
@@ -170,12 +173,12 @@ export class ScreenDiaryWorld implements World {
       panels: [
         { id: 'timeline', title: t.title, description: t.description, getMethods: ['state', 'list', 'search', 'clear'] },
         {
-          id: 'apps',
-          title: language === 'zh' || language === 'zh-Hant' ? '应用与衰减' : 'Apps and decay',
+          id: 'words',
+          title: language === 'zh' || language === 'zh-Hant' ? '词汇与衰减' : 'Words and decay',
           description: language === 'zh' || language === 'zh-Hant'
             ? '出现过的应用：查看默认类型，逐行覆盖类型（词性）与流枯竭窗口。'
-            : 'Seen applications: inspect the default category and override the category or flow decay per app.',
-          getMethods: ['apps', 'setApp'],
+            : 'Sighted tokens (app names and title words alike): count, coordinates, weight; app tokens can override category and decay.',
+          getMethods: ['words', 'setApp'],
         },
         {
           id: 'developer',
@@ -265,6 +268,9 @@ export class ScreenDiaryWorld implements World {
     if (!override?.category && (baseline.filtered || baseline.blurred)) return null;
     const projection = override?.category ? projectionFor(override.category) : baseline;
     const customDecay = override?.decayMinutes ?? 0;
+    if (entry.type.endsWith('.focus')) {
+      this.tokenCatalog?.record(tokenize(entry.app ?? null, entry.title ?? null), at);
+    }
     const smoothed = filter.observe({ tech: projection.tech, work: projection.work });
     if (at - this.lastSampleAt >= Math.max(5, this.opts.cfg.sampleSec) * 1000) {
       const encoded = encodeState(smoothed.tech, smoothed.work);
@@ -544,7 +550,7 @@ export class ScreenDiaryWorld implements World {
   /* ---------- panel ---------- */
 
   private async invoke(panel: string, method: string, args: unknown[]): Promise<unknown> {
-    if (panel !== 'timeline' && panel !== 'apps' && panel !== 'developer') return null;
+    if (panel !== 'timeline' && panel !== 'words' && panel !== 'developer') return null;
     const book = this.book;
     switch (method) {
       case 'state': {
@@ -598,6 +604,7 @@ export class ScreenDiaryWorld implements World {
           },
           counts: {
             apps: this.catalog?.list().length ?? 0,
+            tokens: this.tokenCatalog?.count() ?? 0,
             samples: this.book?.sampleCount ?? 0,
             entries: this.book?.size ?? 0,
             cursor: this.book?.cursor ?? 0,
@@ -608,14 +615,10 @@ export class ScreenDiaryWorld implements World {
           ],
         };
       }
-      case 'apps':
-        return {
-          apps: (this.catalog?.list() ?? []).map((row) => ({
-            ...row,
-            label: this.appLabel(row.category ?? row.defaultCategory),
-            defaultLabel: this.appLabel(row.defaultCategory),
-          })),
-        };
+      case 'words': {
+        const limit = typeof args[0] === 'number' && Number.isFinite(args[0]) ? Math.min(1000, Math.max(1, Math.round(args[0]))) : 300;
+        return { words: this.tokenCatalog?.list(limit) ?? [] };
+      }
       case 'setApp': {
         const [appArg, categoryArg, decayArg] = args;
         const app = typeof appArg === 'string' ? appArg : '';
@@ -635,6 +638,7 @@ export class ScreenDiaryWorld implements World {
   private clear(): number {
     const removed = this.book?.clear() ?? 0;
     this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
+    this.tokenCatalog = new TokenCatalog(join(this.opts.dataDir, 'diary'));
     this.filter = new StateFilter(this.opts.cfg.smoothing);
     this.lastSampleAt = 0;
     return removed;

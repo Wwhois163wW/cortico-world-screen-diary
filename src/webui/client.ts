@@ -191,15 +191,14 @@ const timelinePanel: WebUiPanel = {
   },
 };
 
-interface AppRow {
-  app: string;
+interface WordRow {
+  token: string;
+  kind: 'app' | 'word';
+  app?: string;
   count: number;
   lastSeen: string;
-  defaultCategory: string;
-  defaultLabel: string;
-  category?: string;
-  label: string;
-  decayMinutes?: number;
+  coord: [number, number];
+  weight: number;
 }
 
 const APP_OPTIONS = [
@@ -214,43 +213,30 @@ const APP_OPTIONS = [
   ['filtered', '过滤', 'Filtered'],
 ] as const;
 
-const appsPanel: WebUiPanel = {
+const wordsPanel: WebUiPanel = {
   mount(ctx: WebUiPanelContext) {
     const zh = ctx.language === 'zh' || ctx.language === 'zh-Hant';
     const root = document.createElement('div');
     root.style.cssText = 'display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box;padding:14px;overflow:auto';
 
     const title = document.createElement('div');
-    title.textContent = zh ? '应用与衰减' : 'Apps and decay';
+    title.textContent = zh ? '词汇与衰减' : 'Words and decay';
     title.style.cssText = 'font-size:14px;font-weight:600';
     const note = document.createElement('div');
     note.textContent = zh
-      ? '这里只列出出现过的应用名、默认类型与覆盖项；窗口标题不会出现在表中。通讯类默认过滤，改类型会覆盖默认行为。'
-      : 'Only app names, default categories and overrides are listed; window titles never appear here. Communication apps are filtered by default; changing the category overrides that.';
-    note.style.cssText = 'font-size:12px;opacity:.7;max-width:760px';
+      ? '应用名与窗口标题词同表；坐标 = [工作/娱乐, 轻/重]，权重越高越能拉动状态。标题只以词频形式保留。通讯类默认过滤；应用词可覆盖类型与流枯竭窗口。'
+      : 'App names and title words share one table; coordinates are [work/entertainment, light/heavy] and heavier words pull the state more. Titles are kept only as token counts. Communication apps are filtered by default; app tokens can override category and decay.';
+    note.style.cssText = 'font-size:12px;opacity:.7;max-width:800px';
 
     const status = document.createElement('div');
     status.style.cssText = 'font-size:12px;opacity:.75;min-height:16px';
     const table = document.createElement('div');
     table.style.cssText = 'display:flex;flex-direction:column;gap:6px';
 
-    const load = async () => {
-      table.replaceChildren();
-      status.textContent = zh ? '读取中…' : 'Loading…';
-      try {
-        const data = await ctx.invoke<{ apps: AppRow[] }>('apps');
-        status.textContent = data.apps.length ? `${data.apps.length} ${zh ? '个应用' : 'apps'}` : (zh ? '还没有见过的应用' : 'No apps seen yet');
-        table.append(renderHeader());
-        for (const row of data.apps) table.append(renderRow(row));
-      } catch (err) {
-        status.textContent = `${zh ? '读取失败' : 'Failed'}: ${err instanceof Error ? err.message : String(err)}`;
-      }
-    };
-
-    const renderHeader = (): HTMLElement => {
+    const header = (): HTMLElement => {
       const head = document.createElement('div');
       head.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;opacity:.55;padding:4px 0;border-bottom:1px solid rgba(128,128,128,.3)';
-      for (const [text, width] of [['应用', 'flex:1 1 180px'], ['次数', 'width:52px;text-align:right'], ['默认类型', 'width:88px'], ['类型覆盖', ''], ['流枯竭窗口（分钟）', ''], ['操作', '']] as const) {
+      for (const [text, width] of [['词', 'flex:1 1 170px'], ['次数', 'width:52px;text-align:right'], ['工作', 'width:64px;text-align:right'], ['技术', 'width:64px;text-align:right'], ['权重', 'width:56px;text-align:right'], ['类型 / 衰减', ''], ['操作', '']] as const) {
         const cell = document.createElement('span');
         cell.textContent = text;
         if (width) cell.style.cssText = width;
@@ -258,18 +244,35 @@ const appsPanel: WebUiPanel = {
       }
       return head;
     };
-    const renderRow = (row: AppRow): HTMLElement => {
+
+    const renderRow = (row: WordRow): HTMLElement => {
       const line = document.createElement('div');
-      line.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.14)';
-      const app = document.createElement('span');
-      app.textContent = row.app;
-      app.style.cssText = 'font-family:ui-monospace,monospace;flex:1 1 180px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      line.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;padding:5px 0;border-bottom:1px solid rgba(128,128,128,.14)';
+      const token = document.createElement('span');
+      token.textContent = row.token;
+      token.style.cssText = 'font-family:ui-monospace,monospace;flex:1 1 170px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       const count = document.createElement('span');
       count.textContent = `${row.count} ×`;
       count.style.cssText = 'opacity:.65;font-size:12px;width:52px;text-align:right';
-      const def = document.createElement('span');
-      def.textContent = row.defaultLabel;
-      def.style.cssText = 'opacity:.65;font-size:12px;width:88px';
+      const work = document.createElement('span');
+      work.textContent = row.coord[0].toFixed(2);
+      work.style.cssText = 'opacity:.7;font-size:12px;width:64px;text-align:right;font-family:ui-monospace,monospace';
+      const tech = document.createElement('span');
+      tech.textContent = row.coord[1].toFixed(2);
+      tech.style.cssText = 'opacity:.7;font-size:12px;width:64px;text-align:right;font-family:ui-monospace,monospace';
+      const weight = document.createElement('span');
+      weight.textContent = row.weight.toFixed(1);
+      weight.style.cssText = 'opacity:.7;font-size:12px;width:56px;text-align:right;font-family:ui-monospace,monospace';
+      line.append(token, count, work, tech, weight);
+
+      if (row.kind !== 'app' || !row.app) {
+        const dash = document.createElement('span');
+        dash.textContent = '—';
+        dash.style.cssText = 'opacity:.35;font-size:12px';
+        line.append(dash);
+        return line;
+      }
+
       const select = document.createElement('select');
       select.style.cssText = 'font:inherit;font-size:12px;padding:3px 6px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
       const auto = document.createElement('option');
@@ -280,7 +283,6 @@ const appsPanel: WebUiPanel = {
         const option = document.createElement('option');
         option.value = value;
         option.textContent = zh ? labelZh : labelEn;
-        if ((row.category ?? '') === value) option.selected = true;
         select.append(option);
       }
       const decay = document.createElement('input');
@@ -288,9 +290,8 @@ const appsPanel: WebUiPanel = {
       decay.min = '1';
       decay.max = '180';
       decay.placeholder = zh ? '默认' : 'default';
-      decay.title = zh ? '留空表示跟随该类型的默认窗口（开发/文书 20 分、视频 30、游戏 12、浏览器 8）' : 'Empty follows the category default (dev/office 20m, video 30m, game 12m, browser 8m)';
-      decay.value = row.decayMinutes ? String(row.decayMinutes) : '';
-      decay.style.cssText = 'width:78px;font:inherit;font-size:12px;padding:3px 6px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
+      decay.title = zh ? '留空跟随该类型的默认窗口' : 'Empty follows the category default';
+      decay.style.cssText = 'width:70px;font:inherit;font-size:12px;padding:3px 6px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
       const save = document.createElement('button');
       save.textContent = zh ? '保存' : 'Save';
       save.style.cssText = 'font:inherit;font-size:12px;padding:3px 9px;border-radius:5px;cursor:pointer;border:1px solid rgba(128,128,128,.45);background:transparent;color:inherit';
@@ -305,8 +306,21 @@ const appsPanel: WebUiPanel = {
           }
         })();
       });
-      line.append(app, count, def, select, decay, save);
+      line.append(select, decay, save);
       return line;
+    };
+
+    const load = async () => {
+      table.replaceChildren();
+      status.textContent = zh ? '读取中…' : 'Loading…';
+      try {
+        const data = await ctx.invoke<{ words: WordRow[] }>('words');
+        status.textContent = data.words.length ? `${data.words.length} ${zh ? '个词' : 'tokens'}` : (zh ? '还没有采集到词' : 'No tokens yet');
+        table.append(header());
+        for (const row of data.words) table.append(renderRow(row));
+      } catch (err) {
+        status.textContent = `${zh ? '读取失败' : 'Failed'}: ${err instanceof Error ? err.message : String(err)}`;
+      }
     };
 
     root.append(title, note, status, table);
@@ -315,7 +329,6 @@ const appsPanel: WebUiPanel = {
     return { dispose() {} };
   },
 };
-
 interface Diagnostics {
   flow: { state: string; lastSwitchAt: number; gapMs: number; decayMs: number; category: string; checkInEnabled: boolean; baseDecayMinutes: number; awayAfterMinutes: number; checkInCooldownMinutes: number };
   config: { source: string; sampleSec: number; detailHours: number; keepDays: number; smoothing: number; blurAi: boolean; ignoreApps: string };
@@ -420,5 +433,5 @@ const developerPanel: WebUiPanel = {
   },
 };
 
-const bundle: WebUiClientBundle = { panels: { timeline: timelinePanel, apps: appsPanel, developer: developerPanel } };
+const bundle: WebUiClientBundle = { panels: { timeline: timelinePanel, words: wordsPanel, developer: developerPanel } };
 export default bundle;

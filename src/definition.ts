@@ -18,6 +18,8 @@ const DESCRIBE: WorldDescribe = {
       diary_recent: { zh: '读最近 10 个平滑状态采样，新的在前。', en: 'Reads the most recent smoothed state samples, newest first.' },
       diary_today: { zh: '按半小时分桶读某天的平滑状态，默认今天。', en: 'Reads one day of smoothed state in half-hour bins, today by default.' },
       diary_search: { zh: '显式回忆：在短期细节记录里搜索应用名、标题或速写。', en: 'Explicit recall over short-lived detail entries.' },
+      diary_apps: { zh: '列出最近见过的应用、默认分类与逐应用覆盖项。', en: 'Lists recently seen apps, their default category and per-app overrides.' },
+      diary_set_app: { zh: '设置某个应用的类型（词性）与流枯竭窗口；0 清除覆盖。', en: 'Sets an app category or flow-decay override; 0 clears it.' },
       diary_stats: { zh: '报覆盖天数、状态采样数与主要状态。', en: 'Reports days, state samples and dominant states.' },
     },
   ),

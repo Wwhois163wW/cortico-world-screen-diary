@@ -1,4 +1,4 @@
-/** 这个 World 让模型读到的文本：状态、轨迹、在场切换与显式回忆的回执，中英各一份。 */
+/** 这个 World 让模型读到的文本：状态、轨迹、在场切换、应用策略与显式回忆的回执，中英各一份。 */
 import type { DiaryEntry } from './book.ts';
 
 const zh = {
@@ -17,6 +17,11 @@ const zh = {
   },
   reengage: (gap: string, category: string) => `[presence] 安静了 ${gap} 后回到${category}。`,
   checkin: (gap: string, category: string) => `[presence] 已经 ${gap} 没有窗口切换，可能专注或离开（最后在${category}）。可以提醒休息，或轻声确认。`,
+  appsHead: (n: number) => `[diary] 最近见过的 ${n} 个应用：`,
+  appLine: (app: string, category: string, decay: number, count: number) =>
+    `${app} · ${category}` + (decay > 0 ? ` · 衰减 ${decay} 分` : '') + ` · ${count} 次`,
+  appSet: (app: string, category: string, decay: number) =>
+    `[diary] 已更新 ${app}：${category}` + (decay > 0 ? `，衰减 ${decay} 分` : '，衰减用类别默认'),
   stats: (days: number, samples: number, top: Array<{ label: string; count: number }>) =>
     `[diary] ${days} 天、${samples} 个状态采样` + (top.length ? `；主要状态：${top.map((item) => `${item.label} ${item.count}`).join('、')}` : '。'),
 };
@@ -37,6 +42,11 @@ const en: typeof zh = {
   },
   reengage: (gap, category) => `[presence] Back to ${category} after ${gap} of quiet.`,
   checkin: (gap, category) => `[presence] ${gap} without a window switch; possibly focused or away (last: ${category}). A break reminder or a soft check-in fits.`,
+  appsHead: (n) => `[diary] The ${n} apps seen most recently:`,
+  appLine: (app, category, decay, count) =>
+    `${app} · ${category}` + (decay > 0 ? ` · decay ${decay}m` : '') + ` · ${count} sightings`,
+  appSet: (app, category, decay) =>
+    `[diary] Updated ${app}: ${category}` + (decay > 0 ? `, decay ${decay}m` : ', category default decay'),
   stats: (days, samples, top) =>
     `[diary] ${days} days, ${samples} state samples` + (top.length ? `; main states: ${top.map((item) => `${item.label} ${item.count}`).join(', ')}` : '.'),
 };

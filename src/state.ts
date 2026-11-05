@@ -70,6 +70,16 @@ export function classify(app: string | null, title: string | null, options: Clas
   return NEUTRAL;
 }
 
+/** Projection for an explicit category override. */
+export function projectionFor(category: Category): Projection {
+  const points: Record<Category, [number, number]> = {
+    develop: [0.8, 0.6], game: [0.6, -0.8], casual: [0.25, -0.35],
+    office: [-0.2, 0.8], video: [-0.5, -0.8], browser: [0, 0], ai: [0, 0], neutral: [0, 0],
+  };
+  const [tech, work] = points[category];
+  return pos(category, tech, work, category === 'ai');
+}
+
 /** The quadrant and its Chinese/English label for a smoothed point. */
 export function encodeState(tech: number, work: number): { category: Category; zh: string; en: string } {
   if (Math.abs(tech) < 0.2 && Math.abs(work) < 0.2) return { category: 'neutral', zh: '中性', en: 'neutral' };

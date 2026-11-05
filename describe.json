@@ -100,6 +100,72 @@
         "zh": "报覆盖天数、状态采样数与主要状态。",
         "en": "Reports days, state samples and dominant states."
       }
+    },
+    {
+      "name": "diary_apps",
+      "description": "List the applications seen most recently, their category and their per-app flow-decay override (if any).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "description": "Most apps to return; default 15."
+          }
+        }
+      },
+      "tags": [
+        "read"
+      ],
+      "summary": {
+        "zh": "列出最近见过的应用、默认分类与逐应用覆盖项。",
+        "en": "Lists recently seen apps, their default category and per-app overrides."
+      }
+    },
+    {
+      "name": "diary_set_app",
+      "description": "Set or clear the per-app category (word class) and flow-decay minutes when the default classification feels wrong for this person.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "description": "Application name exactly as listed by diary_apps."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "develop",
+              "game",
+              "casual",
+              "office",
+              "video",
+              "browser",
+              "ai",
+              "neutral",
+              "filtered"
+            ],
+            "description": "Override category; omit to leave unchanged."
+          },
+          "decayMinutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 180,
+            "description": "Per-app flow-decay minutes; 0 clears the override."
+          }
+        },
+        "required": [
+          "app"
+        ]
+      },
+      "tags": [
+        "write"
+      ],
+      "summary": {
+        "zh": "设置某个应用的类型（词性）与流枯竭窗口；0 清除覆盖。",
+        "en": "Sets an app category or flow-decay override; 0 clears it."
+      }
     }
   ],
   "events": [

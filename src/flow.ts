@@ -2,9 +2,9 @@
  * Flow model: derives "busy / focus-or-away" from foreground-switch timing only.
  *
  * No input hooks, no global monitoring. Window switching is the activity signal; silence past a
- * per-category decay window means focus or away (deliberately not distinguished), and a new switch
- * after that is a natural moment for the companion to talk. The state is transient and only drives
- * interaction; it is not long-term profiling data.
+ * per-category (or per-app) decay window means focus or away (deliberately not distinguished), and
+ * a new switch after that is a natural moment for the companion to talk. The state is transient
+ * and only drives interaction; it is not long-term profiling data.
  */
 import type { Category } from './state.ts';
 
@@ -60,6 +60,8 @@ export interface FlowSnapshot {
   state: FlowState;
   lastCheckInAt: number;
   checkedInAt: number;
+  /** Per-app override for the last switch, minutes; 0 = category default. */
+  lastDecayMinutes: number;
 }
 
 /** Pure state machine; the World persists the snapshot and pushes the events. */
@@ -69,6 +71,7 @@ export class FlowModel {
   private state: FlowState = 'idle';
   private lastCheckInAt = 0;
   private checkedInAt = 0;
+  private lastDecayMinutes = 0;
   private readonly cfg: FlowConfig;
 
   constructor(cfg: Partial<FlowConfig> = {}) {
@@ -87,28 +90,31 @@ export class FlowModel {
     return this.lastCategory;
   }
 
-  /** Milliseconds of silence that count as "flow depleted" for this category. */
-  decayMs(category: Category = this.lastCategory): number {
-    const base = Math.max(1, this.cfg.baseDecayMinutes) * 60_000;
-    return base * (DECAY_MULTIPLIER[category] ?? 1);
+  /** Milliseconds of silence that count as "flow depleted"; an app override wins. */
+  decayMs(category: Category = this.lastCategory, overrideMinutes = 0): number {
+    const minutes = overrideMinutes > 0 ? overrideMinutes : Math.max(1, this.cfg.baseDecayMinutes);
+    return minutes * 60_000 * (DECAY_MULTIPLIER[category] ?? 1);
   }
 
-  /** Feed one accepted foreground switch. */
-  observeSwitch(at: number, category: Category): SwitchResult {
+  /** Feed one accepted foreground switch; `decayMinutes` may override the category default. */
+  observeSwitch(at: number, category: Category, decayMinutes = 0): SwitchResult {
     if (this.lastAt === 0) {
       this.lastAt = at;
       this.lastCategory = category;
+      this.lastDecayMinutes = decayMinutes > 0 ? decayMinutes : 0;
       this.state = 'busy';
       return {};
     }
     const gapMs = Math.max(0, at - this.lastAt);
     const previousCategory = this.lastCategory;
-    const wasQuiet = this.state === 'depleted' || this.state === 'away' || gapMs >= this.decayMs(previousCategory);
+    const previousDecay = this.decayMs(previousCategory, this.lastDecayMinutes);
+    const wasQuiet = this.state === 'depleted' || this.state === 'away' || gapMs >= previousDecay;
     this.lastAt = at;
     this.lastCategory = category;
+    this.lastDecayMinutes = decayMinutes > 0 ? decayMinutes : 0;
     this.state = 'busy';
     this.checkedInAt = 0;
-    if (wasQuiet && gapMs >= this.decayMs(previousCategory)) return { reengage: { gapMs, previousCategory } };
+    if (wasQuiet && gapMs >= previousDecay) return { reengage: { gapMs, previousCategory } };
     return {};
   }
 
@@ -116,7 +122,7 @@ export class FlowModel {
   tick(now: number): TickResult {
     if (this.lastAt === 0) return {};
     const gapMs = Math.max(0, now - this.lastAt);
-    const decay = this.decayMs();
+    const decay = this.decayMs(this.lastCategory, this.lastDecayMinutes);
     if (gapMs >= decay) {
       if (this.state === 'depleted') {
         if (this.checkedInAt > 0 && now - this.checkedInAt >= Math.max(1, this.cfg.awayAfterMinutes) * 60_000) {
@@ -147,6 +153,7 @@ export class FlowModel {
       state: this.state,
       lastCheckInAt: this.lastCheckInAt,
       checkedInAt: this.checkedInAt,
+      lastDecayMinutes: this.lastDecayMinutes,
     };
   }
 
@@ -157,6 +164,7 @@ export class FlowModel {
     this.state = snapshot.state ?? 'idle';
     this.lastCheckInAt = snapshot.lastCheckInAt ?? 0;
     this.checkedInAt = snapshot.checkedInAt ?? 0;
+    this.lastDecayMinutes = snapshot.lastDecayMinutes ?? 0;
   }
 }
 

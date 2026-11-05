@@ -12,8 +12,9 @@ import { shortTime } from 'cortico/core/util.ts';
 import { DiaryBook, type DiaryEntry } from './book.ts';
 import { diaryConfigGroup, diaryPanelText, diaryStorageText, type DiaryConfigSection } from './config.ts';
 import { MODEL_TEXT, type ModelLanguage, type ModelText } from './model-text.ts';
-import { classify, encodeState, StateFilter, categoryLabel } from './state.ts';
+import { classify, encodeState, StateFilter, categoryLabel, projectionFor } from './state.ts';
 import { FlowModel, gapText, type FlowSnapshot } from './flow.ts';
+import { AppCatalog, type AppCategory } from './apps.ts';
 
 const ENV_PROMPT_FILES: Record<ModelLanguage, string> = {
   zh: fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url)),
@@ -72,6 +73,26 @@ export const SCREEN_DIARY_TOOL_DECLS: ReadonlyArray<Omit<ToolDef, 'handler'>> = 
     description: 'How many days and state samples the diary holds, and which states dominate.',
     parameters: { type: 'object', properties: {} },
   },
+  {
+    name: 'diary_apps',
+    tags: ['read'],
+    description: 'List the applications seen most recently, their category and their per-app flow-decay override (if any).',
+    parameters: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 50, description: 'Most apps to return; default 15.' } } },
+  },
+  {
+    name: 'diary_set_app',
+    tags: ['write'],
+    description: 'Set or clear the per-app category (word class) and flow-decay minutes when the default classification feels wrong for this person.',
+    parameters: {
+      type: 'object',
+      properties: {
+        app: { type: 'string', description: 'Application name exactly as listed by diary_apps.' },
+        category: { type: 'string', enum: ['develop', 'game', 'casual', 'office', 'video', 'browser', 'ai', 'neutral', 'filtered'], description: 'Override category; omit to leave unchanged.' },
+        decayMinutes: { type: 'integer', minimum: 1, maximum: 180, description: 'Per-app flow-decay minutes; 0 clears the override.' },
+      },
+      required: ['app'],
+    },
+  },
 ];
 
 const errText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
@@ -86,6 +107,7 @@ export class ScreenDiaryWorld implements World {
   private busy = false;
   private lastSampleAt = 0;
   private flow: FlowModel | null = null;
+  private catalog: AppCatalog | null = null;
   private flowActions: Array<{ type: 'reengage' | 'checkin'; text: string; meta: Record<string, unknown> }> = [];
 
   constructor(private readonly opts: DiaryOptions) {}
@@ -100,6 +122,8 @@ export class ScreenDiaryWorld implements World {
       diary_recent: async (args) => this.recentOutcome(args),
       diary_today: async (args) => this.today(args),
       diary_search: async (args) => this.search(args),
+      diary_apps: async (args) => this.appsOutcome(args),
+      diary_set_app: async (args) => this.setApp(args),
       diary_stats: async () => this.stats(),
     };
     return SCREEN_DIARY_TOOL_DECLS.map((decl) => ({ ...decl, handler: handlers[decl.name] }));
@@ -108,6 +132,7 @@ export class ScreenDiaryWorld implements World {
   async start(host: WorldHost): Promise<void> {
     this.host = host;
     this.book = new DiaryBook(join(this.opts.dataDir, 'diary'), this.opts.timezone, Math.max(1, this.opts.cfg.keepDays), Math.max(1, this.opts.cfg.detailHours));
+    this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
     this.filter = new StateFilter(this.opts.cfg.smoothing);
     const latest = this.book.samples(1)[0];
     if (latest) {
@@ -142,7 +167,17 @@ export class ScreenDiaryWorld implements World {
     const t = diaryPanelText(language);
     return {
       label: language === 'zh' || language === 'zh-Hant' ? '活动日记' : 'Activity diary',
-      panels: [{ id: 'timeline', title: t.title, description: t.description, getMethods: ['state', 'list', 'search', 'clear'] }],
+      panels: [
+        { id: 'timeline', title: t.title, description: t.description, getMethods: ['state', 'list', 'search', 'clear'] },
+        {
+          id: 'apps',
+          title: language === 'zh' || language === 'zh-Hant' ? '应用与衰减' : 'Apps and decay',
+          description: language === 'zh' || language === 'zh-Hant'
+            ? '出现过的应用：查看默认类型，逐行覆盖类型（词性）与流枯竭窗口。'
+            : 'Seen applications: inspect the default category and override the category or flow decay per app.',
+          getMethods: ['apps', 'setApp'],
+        },
+      ],
       invoke: (panel, method, args) => this.invoke(panel, method, args),
       config: [diaryConfigGroup(language)],
       storage: [{
@@ -208,14 +243,20 @@ export class ScreenDiaryWorld implements World {
 
   /** Privacy filter, projection and smoothing for one event; null means it is not stored at all. */
   private project(entry: DiaryEntry, filter: StateFilter): DiaryEntry | null {
-    const projection = classify(entry.app ?? null, entry.title ?? null, {
+    const app = entry.app ?? '';
+    const baseline = classify(app || null, entry.title ?? null, {
       blurAi: this.opts.cfg.blurAi,
       ignoreApps: this.opts.cfg.ignoreApps,
     });
-    // communication apps and blurred AI chats never reach the diary
-    if (projection.filtered || projection.blurred) return null;
     const at = Date.parse(entry.ts);
     if (Number.isNaN(at)) return null;
+    this.catalog?.observe(app, at, baseline.filtered ? 'filtered' : baseline.category);
+    const override = app ? this.catalog?.policy(app) : undefined;
+    if (override?.category === 'filtered') return null;
+    // communication apps and blurred AI chats never reach the diary unless explicitly overridden
+    if (!override?.category && (baseline.filtered || baseline.blurred)) return null;
+    const projection = override?.category ? projectionFor(override.category) : baseline;
+    const customDecay = override?.decayMinutes ?? 0;
     const smoothed = filter.observe({ tech: projection.tech, work: projection.work });
     if (at - this.lastSampleAt >= Math.max(5, this.opts.cfg.sampleSec) * 1000) {
       const encoded = encodeState(smoothed.tech, smoothed.work);
@@ -231,7 +272,7 @@ export class ScreenDiaryWorld implements World {
     }
     const flow = this.flow;
     if (flow && entry.type.endsWith('.focus')) {
-      const result = flow.observeSwitch(at, projection.category);
+      const result = flow.observeSwitch(at, projection.category, customDecay);
       if (result.reengage) {
         this.flowActions.push({
           type: 'reengage',
@@ -312,6 +353,7 @@ export class ScreenDiaryWorld implements World {
   }
 
   /** After a restart, seed the flow clock from the latest accepted switch so it is not "busy". */
+  /** After a restart, seed the flow clock from the latest accepted switch so it is not "busy". */
   private seedFlow(): void {
     if (!this.book || !this.flow) return;
     const flow = this.flow;
@@ -321,14 +363,17 @@ export class ScreenDiaryWorld implements World {
       if (!entry.type.endsWith('.focus')) continue;
       const at = Date.parse(entry.ts);
       if (Number.isNaN(at)) return;
-      const projection = classify(entry.app ?? null, entry.title ?? null, {
+      const app = entry.app ?? '';
+      const baseline = classify(app || null, entry.title ?? null, {
         blurAi: this.opts.cfg.blurAi,
         ignoreApps: this.opts.cfg.ignoreApps,
       });
-      if (!projection.filtered && !projection.blurred) {
-        flow.observeSwitch(at, projection.category);
-        this.saveFlow();
-      }
+      const override = app ? this.catalog?.policy(app) : undefined;
+      if (override?.category === 'filtered') return;
+      if (!override?.category && (baseline.filtered || baseline.blurred)) return;
+      const projection = override?.category ? projectionFor(override.category) : baseline;
+      flow.observeSwitch(at, projection.category, override?.decayMinutes ?? 0);
+      this.saveFlow();
       return;
     }
   }
@@ -404,6 +449,37 @@ export class ScreenDiaryWorld implements World {
     };
   }
 
+  private appLabel(category: AppCategory): string {
+    if (category === 'filtered') return this.modelLanguage() === 'en' ? 'filtered' : '过滤';
+    return categoryLabel(category, this.modelLanguage());
+  }
+
+  private appsOutcome(args: Record<string, unknown>): ToolOutcome {
+    const catalog = this.catalog;
+    if (!catalog) return { text: this.t.empty };
+    const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) ? Math.min(50, Math.max(1, Math.round(args.limit))) : 15;
+    const rows = catalog.list().slice(0, limit);
+    if (rows.length === 0) return { text: this.t.empty };
+    return {
+      text: [
+        this.t.appsHead(rows.length),
+        ...rows.map((row) => this.t.appLine(row.app, this.appLabel(row.category ?? row.defaultCategory), row.decayMinutes ?? 0, row.count)),
+      ].join('\n'),
+    };
+  }
+
+  private setApp(args: Record<string, unknown>): ToolOutcome {
+    const catalog = this.catalog;
+    const app = typeof args.app === 'string' ? args.app.trim() : '';
+    if (!catalog || !app) return { text: this.t.appSet(app || '?', '中性', 0), failed: true };
+    const allowed: AppCategory[] = ['develop', 'game', 'casual', 'office', 'video', 'browser', 'ai', 'neutral', 'filtered'];
+    const category = typeof args.category === 'string' && allowed.includes(args.category as AppCategory) ? args.category as AppCategory : undefined;
+    const decay = typeof args.decayMinutes === 'number' && Number.isFinite(args.decayMinutes) ? (args.decayMinutes > 0 ? Math.round(args.decayMinutes) : 0) : undefined;
+    const record = catalog.setPolicy(app, category, decay);
+    if (!record) return { text: this.t.noMatch(app), failed: true };
+    return { text: this.t.appSet(record.app, this.appLabel(record.category ?? record.defaultCategory), record.decayMinutes ?? 0) };
+  }
+
   private stats(): ToolOutcome {
     const book = this.book;
     if (!book) return { text: this.t.empty };
@@ -460,7 +536,7 @@ export class ScreenDiaryWorld implements World {
   /* ---------- panel ---------- */
 
   private async invoke(panel: string, method: string, args: unknown[]): Promise<unknown> {
-    if (panel !== 'timeline') return null;
+    if (panel !== 'timeline' && panel !== 'apps') return null;
     const book = this.book;
     switch (method) {
       case 'state': {
@@ -497,6 +573,7 @@ export class ScreenDiaryWorld implements World {
 
   private clear(): number {
     const removed = this.book?.clear() ?? 0;
+    this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
     this.filter = new StateFilter(this.opts.cfg.smoothing);
     this.lastSampleAt = 0;
     return removed;

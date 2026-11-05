@@ -191,5 +191,114 @@ const timelinePanel: WebUiPanel = {
   },
 };
 
-const bundle: WebUiClientBundle = { panels: { timeline: timelinePanel } };
+interface AppRow {
+  app: string;
+  count: number;
+  lastSeen: string;
+  defaultCategory: string;
+  defaultLabel: string;
+  category?: string;
+  label: string;
+  decayMinutes?: number;
+}
+
+const APP_OPTIONS = [
+  ['develop', '开发', 'Development'],
+  ['office', '文书', 'Documents'],
+  ['video', '视频', 'Video'],
+  ['game', '游戏', 'Gaming'],
+  ['casual', '挂机/轻娱乐', 'Casual'],
+  ['browser', '浏览器', 'Browser'],
+  ['ai', 'AI', 'AI'],
+  ['neutral', '中性', 'Neutral'],
+  ['filtered', '过滤', 'Filtered'],
+] as const;
+
+const appsPanel: WebUiPanel = {
+  mount(ctx: WebUiPanelContext) {
+    const zh = ctx.language === 'zh' || ctx.language === 'zh-Hant';
+    const root = document.createElement('div');
+    root.style.cssText = 'display:flex;flex-direction:column;gap:10px;height:100%;box-sizing:border-box;padding:14px;overflow:auto';
+
+    const title = document.createElement('div');
+    title.textContent = zh ? '应用与衰减' : 'Apps and decay';
+    title.style.cssText = 'font-size:14px;font-weight:600';
+    const note = document.createElement('div');
+    note.textContent = zh
+      ? '这里只列出出现过的应用名、默认类型与覆盖项；窗口标题不会出现在表中。通讯类默认过滤，改类型会覆盖默认行为。'
+      : 'Only app names, default categories and overrides are listed; window titles never appear here. Communication apps are filtered by default; changing the category overrides that.';
+    note.style.cssText = 'font-size:12px;opacity:.7;max-width:760px';
+
+    const status = document.createElement('div');
+    status.style.cssText = 'font-size:12px;opacity:.75;min-height:16px';
+    const table = document.createElement('div');
+    table.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+
+    const load = async () => {
+      table.replaceChildren();
+      status.textContent = zh ? '读取中…' : 'Loading…';
+      try {
+        const data = await ctx.invoke<{ apps: AppRow[] }>('apps');
+        status.textContent = data.apps.length ? `${data.apps.length} ${zh ? '个应用' : 'apps'}` : (zh ? '还没有见过的应用' : 'No apps seen yet');
+        for (const row of data.apps) table.append(renderRow(row));
+      } catch (err) {
+        status.textContent = `${zh ? '读取失败' : 'Failed'}: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    };
+
+    const renderRow = (row: AppRow): HTMLElement => {
+      const line = document.createElement('div');
+      line.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;padding:6px 0;border-bottom:1px solid rgba(128,128,128,.14)';
+      const app = document.createElement('span');
+      app.textContent = row.app;
+      app.style.cssText = 'font-family:ui-monospace,monospace;min-width:160px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      const meta = document.createElement('span');
+      meta.textContent = `${row.count} × · ${zh ? '默认' : 'default'}: ${row.defaultLabel}`;
+      meta.style.cssText = 'opacity:.65;font-size:12px;min-width:150px';
+      const select = document.createElement('select');
+      select.style.cssText = 'font:inherit;font-size:12px;padding:3px 6px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
+      const auto = document.createElement('option');
+      auto.value = '';
+      auto.textContent = zh ? '跟随默认' : 'Follow default';
+      select.append(auto);
+      for (const [value, labelZh, labelEn] of APP_OPTIONS) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = zh ? labelZh : labelEn;
+        if ((row.category ?? '') === value) option.selected = true;
+        select.append(option);
+      }
+      const decay = document.createElement('input');
+      decay.type = 'number';
+      decay.min = '1';
+      decay.max = '180';
+      decay.placeholder = zh ? '类别默认' : 'default';
+      decay.value = row.decayMinutes ? String(row.decayMinutes) : '';
+      decay.style.cssText = 'width:78px;font:inherit;font-size:12px;padding:3px 6px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
+      const save = document.createElement('button');
+      save.textContent = zh ? '保存' : 'Save';
+      save.style.cssText = 'font:inherit;font-size:12px;padding:3px 9px;border-radius:5px;cursor:pointer;border:1px solid rgba(128,128,128,.45);background:transparent;color:inherit';
+      save.addEventListener('click', () => {
+        void (async () => {
+          try {
+            const minutes = decay.value.trim() ? Number(decay.value) : 0;
+            await ctx.invoke('setApp', [row.app, select.value || null, minutes]);
+            status.textContent = zh ? `已保存 ${row.app}` : `Saved ${row.app}`;
+          } catch (err) {
+            status.textContent = `${zh ? '保存失败' : 'Save failed'}: ${err instanceof Error ? err.message : String(err)}`;
+          }
+        })();
+      });
+      line.append(app, meta, select, decay, save);
+      return line;
+    };
+
+    root.append(title, note, status, table);
+    ctx.root.append(root);
+    void load();
+    return { dispose() {} };
+  },
+};
+
+const bundle: WebUiClientBundle = { panels: { timeline: timelinePanel, apps: appsPanel } };
 export default bundle;

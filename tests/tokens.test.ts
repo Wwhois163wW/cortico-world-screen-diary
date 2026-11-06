@@ -24,11 +24,18 @@ describe('titleTokens', () => {
     expect(tokens).not.toContain('google');
   });
 
-  it('keeps Chinese 2-grams for a title', () => {
+  it('segments Chinese into words instead of 2-grams', () => {
     const tokens = titleTokens('性能评估');
     expect(tokens).toContain('性能');
-    expect(tokens).toContain('能评');
     expect(tokens).toContain('评估');
+    expect(tokens).not.toContain('能评');
+  });
+
+  it('keeps meaningful words out of a mixed title', () => {
+    const tokens = titleTokens('Coopanion 智能体记忆与行为解析');
+    expect(tokens).toEqual(expect.arrayContaining(['智能', '记忆', '行为', '解析']));
+    expect(tokens).not.toContain('能体');
+    expect(tokens).not.toContain('忆与');
   });
 
   it('drops short latin words and numbers', () => {

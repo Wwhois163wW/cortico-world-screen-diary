@@ -566,6 +566,14 @@ export class ScreenDiaryWorld implements World {
           entries: stats.total,
           days: stats.days,
           lastCursor: book?.cursor ?? 0,
+          flow: this.flow
+            ? {
+                state: this.flow.current,
+                gapMs: this.flow.lastSwitchAt ? Date.now() - this.flow.lastSwitchAt : 0,
+                decayMs: this.flow.decayMs(),
+                category: this.flow.category,
+              }
+            : null,
         };
       }
       case 'list': {

@@ -12,6 +12,7 @@ interface State {
   entries: number;
   days: number;
   lastCursor: number;
+  flow: { state: string; gapMs: number; decayMs: number; category: string } | null;
 }
 interface Entry {
   cursor: number;
@@ -230,6 +231,14 @@ const wordsPanel: WebUiPanel = {
 
     const status = document.createElement('div');
     status.style.cssText = 'font-size:12px;opacity:.75;min-height:16px';
+    const controls = document.createElement('label');
+    controls.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:12px;opacity:.75;cursor:pointer';
+    const showAll = document.createElement('input');
+    showAll.type = 'checkbox';
+    const showAllText = document.createElement('span');
+    showAllText.textContent = zh ? '显示未知词（权重 0.1）' : 'Show unknown tokens (weight 0.1)';
+    controls.append(showAll, showAllText);
+    showAll.addEventListener('change', () => void load());
     const table = document.createElement('div');
     table.style.cssText = 'display:flex;flex-direction:column;gap:6px';
 
@@ -315,15 +324,19 @@ const wordsPanel: WebUiPanel = {
       status.textContent = zh ? '读取中…' : 'Loading…';
       try {
         const data = await ctx.invoke<{ words: WordRow[] }>('words');
-        status.textContent = data.words.length ? `${data.words.length} ${zh ? '个词' : 'tokens'}` : (zh ? '还没有采集到词' : 'No tokens yet');
+        const rows = data.words;
+        const visible = showAll.checked ? rows : rows.filter((row) => row.kind === 'app' || row.weight > 0.1);
+        status.textContent = visible.length
+          ? `${visible.length} / ${rows.length} ${zh ? '个词' : 'tokens'}`
+          : (zh ? '还没有采集到有信号词；可勾选“显示未知词”查看全部' : 'No signal tokens yet; enable “Show unknown tokens” to see everything');
         table.append(header());
-        for (const row of data.words) table.append(renderRow(row));
+        for (const row of visible) table.append(renderRow(row));
       } catch (err) {
         status.textContent = `${zh ? '读取失败' : 'Failed'}: ${err instanceof Error ? err.message : String(err)}`;
       }
     };
 
-    root.append(title, note, status, table);
+    root.append(title, note, controls, status, table);
     ctx.root.append(root);
     void load();
     return { dispose() {} };
@@ -351,6 +364,14 @@ const developerPanel: WebUiPanel = {
     body.style.cssText = 'display:flex;flex-direction:column;gap:10px;font-size:13px';
     const status = document.createElement('div');
     status.style.cssText = 'font-size:12px;opacity:.75;min-height:16px';
+    const controls = document.createElement('label');
+    controls.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:12px;opacity:.75;cursor:pointer';
+    const showAll = document.createElement('input');
+    showAll.type = 'checkbox';
+    const showAllText = document.createElement('span');
+    showAllText.textContent = zh ? '显示未知词（权重 0.1）' : 'Show unknown tokens (weight 0.1)';
+    controls.append(showAll, showAllText);
+    showAll.addEventListener('change', () => void load());
 
     const section = (heading: string): HTMLElement => {
       const box = document.createElement('div');

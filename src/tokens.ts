@@ -1,9 +1,10 @@
 /**
  * Stage 1 of the word-bag model: tokenisation and a read-only word table.
  *
- * App process names and window-title words are the same kind of token. Nothing here changes the
- * current projection rules yet: it only counts tokens so we can see whether title words carry
- * useful signal before switching the state model over.
+ * App process names and window-title words are the same kind of token. Chinese titles are split
+ * with the ICU word segmenter rather than 2-grams: 2-grams produced junk like 能体/体记/忆与.
+ * Nothing here changes the current projection rules yet: it only counts tokens so we can see
+ * whether title words carry useful signal before switching the state model over.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -61,51 +62,68 @@ const BUILTIN: Record<string, LexiconPoint> = {
   notion: { coord: [0.6, -0.3], weight: 1.8 },
   docs: { coord: [0.6, -0.4], weight: 1.8 },
   figma: { coord: [0.4, 0.2], weight: 1.6 },
+  // Chinese words that the ICU segmenter yields from common window titles.
+  智能: { coord: [0.6, 0.7], weight: 1.8 },
+  智能体: { coord: [0.6, 0.7], weight: 1.8 },
+  记忆: { coord: [0.5, 0.5], weight: 1.4 },
+  行为: { coord: [0.5, 0.5], weight: 1.4 },
+  解析: { coord: [0.6, 0.6], weight: 1.5 },
+  性能: { coord: [0.5, 0.5], weight: 1.4 },
+  评估: { coord: [0.4, 0.4], weight: 1.2 },
+  代码: { coord: [0.7, 0.8], weight: 2.0 },
+  开发: { coord: [0.7, 0.8], weight: 2.0 },
+  文档: { coord: [0.6, -0.3], weight: 1.8 },
+  视频: { coord: [-0.7, -0.6], weight: 2.0 },
+  游戏: { coord: [-0.7, 0.6], weight: 2.0 },
+  会议: { coord: [0.2, 0.2], weight: 1.0 },
 };
 
 const STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'this', 'that', 'new', 'tab', 'window', 'untitled',
   'file', 'edit', 'view', 'help', 'index', 'home', 'page', 'google', 'microsoft', 'mozilla',
   'chrome', 'edge', 'firefox', 'app', 'application', 'document', 'person', 'user',
-  '的', '了', '一个', '页面', '窗口', '标签', '文件', '用户', '正在', '显示', '其中',
+  '的', '了', '与', '和', '在', '是', '有', '我', '你', '他', '它', '这', '那', '一个',
+  '什么', '怎么', '可以', '正在', '显示', '页面', '窗口', '标签', '文件', '用户', '其中',
+  '使用', '查看', '包含', '进行', '以及', '目前', '已经', '自己', '这个', '那个', '还有',
 ]);
 
 const MAX_TITLE_TOKENS = 12;
+const SEGMENTER = typeof Intl !== 'undefined' && 'Segmenter' in Intl
+  ? new Intl.Segmenter('zh', { granularity: 'word' })
+  : null;
 
 /** Process name as one token (`chrome.exe` → `chrome`). */
 export function appToken(app: string): string {
   return app.trim().replace(/\.exe$/i, '').toLowerCase();
 }
 
-/** Tokens from a title: English/number words and Chinese 2-grams, with stopwords removed. */
+function wordsOf(text: string): string[] {
+  if (SEGMENTER) {
+    return [...SEGMENTER.segment(text)]
+      .filter((part) => part.isWordLike)
+      .map((part) => part.segment);
+  }
+  return text.split(/[^a-zA-Z0-9_\u4e00-\u9fa5]+/).filter(Boolean);
+}
+
+/** Tokens from a title: words from the ICU segmenter, stopwords and UI noise removed. */
 export function titleTokens(title: string): string[] {
   const clean = title
     .replace(/\s+[-–—]\s+(google chrome|microsoft edge|mozilla firefox|visual studio code|brave|opera)\s*$/i, '')
     .replace(/https?:\/\/\S+/gi, ' ');
   const out: string[] = [];
   const seen = new Set<string>();
-  const push = (token: string) => {
-    const value = token.trim().toLowerCase();
-    if (!value || STOPWORDS.has(value) || seen.has(value)) return;
-    if (out.length >= MAX_TITLE_TOKENS) return;
+  for (const raw of wordsOf(clean)) {
+    const value = raw.trim().toLowerCase();
+    if (!value || STOPWORDS.has(value) || seen.has(value)) continue;
+    if (/^[\u4e00-\u9fa5]+$/.test(value)) {
+      if ([...value].length < 2) continue; // single characters are noise
+    } else {
+      if (value.length < 3 || /^\d+$/.test(value)) continue;
+    }
+    if (out.length >= MAX_TITLE_TOKENS) break;
     seen.add(value);
     out.push(value);
-  };
-  for (const part of clean.split(/[^a-zA-Z0-9_\u4e00-\u9fa5]+/)) {
-    if (!part) continue;
-    if (/^[\u4e00-\u9fa5]+$/.test(part)) {
-      const chars = [...part];
-      if (chars.length === 1) {
-        if (chars[0] !== '的') push(part);
-        continue;
-      }
-      if (chars.length <= 4) push(part);
-      for (let i = 0; i + 1 < chars.length; i += 1) push(`${chars[i]}${chars[i + 1]}`);
-      continue;
-    }
-    if (/^\d+$/.test(part)) continue;
-    if (part.length < 3) continue;
-    push(part);
   }
   return out;
 }

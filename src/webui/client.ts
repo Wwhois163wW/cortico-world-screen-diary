@@ -242,13 +242,25 @@ const wordsPanel: WebUiPanel = {
     const table = document.createElement('div');
     table.style.cssText = 'display:flex;flex-direction:column;gap:6px';
 
+    const COLUMNS = 'minmax(150px,1.6fr) 52px 56px 56px 52px minmax(150px,1fr) 96px';
+
     const header = (): HTMLElement => {
       const head = document.createElement('div');
-      head.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;opacity:.55;padding:4px 0;border-bottom:1px solid rgba(128,128,128,.3)';
-      for (const [text, width] of [['词', 'flex:1 1 170px'], ['次数', 'width:52px;text-align:right'], ['工作', 'width:64px;text-align:right'], ['技术', 'width:64px;text-align:right'], ['权重', 'width:56px;text-align:right'], ['类型 / 衰减', ''], ['操作', '']] as const) {
+      head.style.cssText = 'display:grid;grid-template-columns:' + COLUMNS + ';gap:8px;align-items:center;font-size:11px;opacity:.55;padding:4px 0;border-bottom:1px solid rgba(128,128,128,.3)';
+      const labels = [
+        zh ? '词' : 'token',
+        zh ? '次数' : 'count',
+        zh ? '工作' : 'work',
+        zh ? '技术' : 'tech',
+        zh ? '权重' : 'weight',
+        zh ? '类型 / 衰减' : 'type / decay',
+        zh ? '操作' : 'action',
+      ];
+      for (let i = 0; i < labels.length; i += 1) {
         const cell = document.createElement('span');
-        cell.textContent = text;
-        if (width) cell.style.cssText = width;
+        cell.textContent = labels[i]!;
+        if (i >= 1 && i <= 4) cell.style.textAlign = 'right';
+        if (i === 6) cell.style.textAlign = 'right';
         head.append(cell);
       }
       return head;
@@ -256,37 +268,42 @@ const wordsPanel: WebUiPanel = {
 
     const renderRow = (row: WordRow): HTMLElement => {
       const line = document.createElement('div');
-      line.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;padding:5px 0;border-bottom:1px solid rgba(128,128,128,.14)';
+      line.style.cssText = 'display:grid;grid-template-columns:' + COLUMNS + ';gap:8px;align-items:center;font-size:13px;padding:5px 0;border-bottom:1px solid rgba(128,128,128,.14)';
       const token = document.createElement('span');
       token.textContent = row.token;
-      token.style.cssText = 'font-family:ui-monospace,monospace;flex:1 1 170px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      token.style.cssText = 'font-family:ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
       const count = document.createElement('span');
-      count.textContent = `${row.count} ×`;
-      count.style.cssText = 'opacity:.65;font-size:12px;width:52px;text-align:right';
+      count.textContent = row.count + ' ×';
+      count.style.cssText = 'opacity:.65;font-size:12px;text-align:right';
       const work = document.createElement('span');
       work.textContent = row.coord[0].toFixed(2);
-      work.style.cssText = 'opacity:.7;font-size:12px;width:64px;text-align:right;font-family:ui-monospace,monospace';
+      work.style.cssText = 'opacity:.7;font-size:12px;text-align:right;font-family:ui-monospace,monospace';
       const tech = document.createElement('span');
       tech.textContent = row.coord[1].toFixed(2);
-      tech.style.cssText = 'opacity:.7;font-size:12px;width:64px;text-align:right;font-family:ui-monospace,monospace';
+      tech.style.cssText = 'opacity:.7;font-size:12px;text-align:right;font-family:ui-monospace,monospace';
       const weight = document.createElement('span');
       weight.textContent = row.weight.toFixed(1);
-      weight.style.cssText = 'opacity:.7;font-size:12px;width:56px;text-align:right;font-family:ui-monospace,monospace';
+      weight.style.cssText = 'opacity:.7;font-size:12px;text-align:right;font-family:ui-monospace,monospace';
       line.append(token, count, work, tech, weight);
 
       if (row.kind !== 'app' || !row.app) {
+        const kind = document.createElement('span');
+        kind.textContent = zh ? '标题词 · 只读' : 'title word · read-only';
+        kind.style.cssText = 'font-size:11px;opacity:.45';
         const dash = document.createElement('span');
         dash.textContent = '—';
-        dash.style.cssText = 'opacity:.35;font-size:12px';
-        line.append(dash);
+        dash.style.cssText = 'opacity:.3;text-align:right';
+        line.append(kind, dash);
         return line;
       }
 
+      const controls = document.createElement('div');
+      controls.style.cssText = 'display:flex;gap:4px;align-items:center;min-width:0';
       const select = document.createElement('select');
-      select.style.cssText = 'font:inherit;font-size:12px;padding:3px 6px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
+      select.style.cssText = 'font:inherit;font-size:12px;padding:3px 4px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4);min-width:0;flex:1';
       const auto = document.createElement('option');
       auto.value = '';
-      auto.textContent = zh ? '跟随默认' : 'Follow default';
+      auto.textContent = zh ? '跟随默认' : 'default';
       select.append(auto);
       for (const [value, labelZh, labelEn] of APP_OPTIONS) {
         const option = document.createElement('option');
@@ -298,9 +315,13 @@ const wordsPanel: WebUiPanel = {
       decay.type = 'number';
       decay.min = '1';
       decay.max = '180';
-      decay.placeholder = zh ? '默认' : 'default';
+      decay.placeholder = zh ? '默认' : 'def';
       decay.title = zh ? '留空跟随该类型的默认窗口' : 'Empty follows the category default';
-      decay.style.cssText = 'width:70px;font:inherit;font-size:12px;padding:3px 6px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
+      decay.style.cssText = 'width:62px;font:inherit;font-size:12px;padding:3px 4px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
+      controls.append(select, decay);
+
+      const action = document.createElement('div');
+      action.style.cssText = 'display:flex;justify-content:flex-end';
       const save = document.createElement('button');
       save.textContent = zh ? '保存' : 'Save';
       save.style.cssText = 'font:inherit;font-size:12px;padding:3px 9px;border-radius:5px;cursor:pointer;border:1px solid rgba(128,128,128,.45);background:transparent;color:inherit';
@@ -309,16 +330,16 @@ const wordsPanel: WebUiPanel = {
           try {
             const minutes = decay.value.trim() ? Number(decay.value) : 0;
             await ctx.invoke('setApp', [row.app, select.value || null, minutes]);
-            status.textContent = zh ? `已保存 ${row.app}` : `Saved ${row.app}`;
+            status.textContent = zh ? '已保存 ' + row.app : 'Saved ' + row.app;
           } catch (err) {
-            status.textContent = `${zh ? '保存失败' : 'Save failed'}: ${err instanceof Error ? err.message : String(err)}`;
+            status.textContent = (zh ? '保存失败' : 'Save failed') + ': ' + (err instanceof Error ? err.message : String(err));
           }
         })();
       });
-      line.append(select, decay, save);
+      action.append(save);
+      line.append(controls, action);
       return line;
     };
-
     const load = async () => {
       table.replaceChildren();
       status.textContent = zh ? '读取中…' : 'Loading…';

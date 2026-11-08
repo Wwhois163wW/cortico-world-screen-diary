@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Language } from 'cortico/core/language.ts';
 import type { EventEnvelope, ToolDef, ToolOutcome, World, WorldHost, WorldWebUiDecl } from 'cortico/core/types.ts';
-import { shortTime } from 'cortico/core/util.ts';
+import { nowIso, shortTime } from 'cortico/core/util.ts';
 import { DiaryBook, type DiaryEntry } from './book.ts';
 import { diaryConfigGroup, diaryPanelText, diaryStorageText, type DiaryConfigSection } from './config.ts';
 import { MODEL_TEXT, type ModelLanguage, type ModelText } from './model-text.ts';
@@ -111,6 +111,8 @@ export class ScreenDiaryWorld implements World {
   private catalog: AppCatalog | null = null;
   private tokenCatalog: TokenCatalog | null = null;
   private flowActions: Array<{ type: 'reengage' | 'checkin'; text: string; meta: Record<string, unknown> }> = [];
+  /** A check-in that has not been delivered yet; a quick reengage can withdraw it. */
+  private pendingCheckin: { cursor: number; at: number } | null = null;
 
   constructor(private readonly opts: DiaryOptions) {}
 
@@ -402,14 +404,25 @@ export class ScreenDiaryWorld implements World {
     const actions = this.flowActions.splice(0);
     for (const action of actions) {
       try {
-        await host.pushEvent({
+        // A quick return cancels a check-in that has not reached the model yet.
+        if (action.type === 'reengage' && this.pendingCheckin && Date.now() - this.pendingCheckin.at < 120_000) {
+          const cursor = this.pendingCheckin.cursor;
+          this.pendingCheckin = null;
+          try {
+            await host.withdrawPending?.(cursor);
+          } catch {
+            /* already delivered; nothing to restore */
+          }
+        }
+        const envelope: EventEnvelope = await host.pushEvent({
           type: `screen-diary.${action.type}`,
           source: this.id,
           senderKey: `screen-diary.${action.type}`,
-          ts: new Date().toISOString(),
+          ts: nowIso(this.opts.timezone),
           text: action.text,
           meta: action.meta,
         }, { trigger: action.type === 'checkin' ? 'debounce' : 'piggyback' });
+        if (action.type === 'checkin') this.pendingCheckin = { cursor: envelope.cursor, at: Date.now() };
       } catch (err) {
         this.host?.log.child('diary').warn('推送在场事件失败', { err: errText(err) });
       }

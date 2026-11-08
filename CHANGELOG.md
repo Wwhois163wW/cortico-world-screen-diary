@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3
+
+- flow 事件改用本地时区时间戳（此前 checkin/reengage 写成 UTC，日志里比实际早 9 小时）
+- checkin 尚未投递时，若 2 分钟内马上 reengage，调用 `withdrawPending` 撤回，避免模型同时收到“可能离开”和“回来了”
 ## 0.5.2
 
 - 词汇表改用 CSS Grid：表头与数据列对齐，数字列右对齐

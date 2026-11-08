@@ -18,6 +18,16 @@ cortico-world-screen-diary
 
 装完重启 Core，在「World 总览」里启用「活动日记」。生产方没启用或还没事件时，面板会提示等待。
 
+## 🧩 配套扩展：窥屏助手
+
+本包不做任何采集：前台窗口、截图和视觉速写都来自 [窥屏助手](https://www.npmjs.com/package/cortico-world-screen-sense)（`cortico-world-screen-sense`）。它把 `screen-sense.focus` / `screen-sense.screenshot` 写进事件流，本包只读事件、做状态投影与记忆整理。
+
+- 只用窥屏助手也能工作；本包是它的**可选消费方**，用来把事件变成可回顾的平滑记忆。
+- 没装窥屏助手时，活动日记不会报错，只会提示等待事件源。
+- 安装顺序：先窥屏助手，再活动日记。
+
+GitHub：[cortico-world-screen-sense](https://github.com/Wwhois163wW/cortico-world-screen-sense) · [cortico-world-screen-diary](https://github.com/Wwhois163wW/cortico-world-screen-diary)
+
 ## 二维状态空间
 
 - **纵轴 技术轴**：重度（开发/折腾）↔ 轻度（看视频/轻办公）

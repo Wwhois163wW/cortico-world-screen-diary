@@ -1,8 +1,8 @@
 {
   "name": "cortico-world-screen-diary",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "type": "module",
-  "description": "活动日记：消费窥屏助手的事件流，把工作状态投影到二维空间并平滑；细节会淡忘，只留大概。需要 cortico-world-screen-sense。",
+  "description": "活动日记：把窥屏助手的事件流整理成平滑的活动记忆与二维状态；细节会淡忘，只留大概。先安装并启用 cortico-world-screen-sense。",
   "author": "Wwhois163wW",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -17,28 +17,52 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
-  "keywords": ["cortico-world", "cortico", "diary", "activity", "screen"],
-  "engines": { "node": ">=22" },
+  "keywords": [
+    "cortico-world",
+    "cortico",
+    "diary",
+    "activity",
+    "screen",
+    "screen-sense"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "packageManager": "pnpm@11.28.6",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "cortico": {
     "kind": "world",
     "api": 6,
     "displayName": "活动日记",
-    "tags": ["memory", "requires-extension", "sensitive-data", "experimental"],
+    "tags": [
+      "memory",
+      "requires-extension",
+      "sensitive-data",
+      "experimental"
+    ],
     "icon": "assets/icon.svg",
     "locales": {
       "en": {
         "displayName": "Activity Diary",
-        "description": "Consumes the screen-sense event stream and projects work activity onto two smoothed axes (technical weight, work/entertainment); details fade, only the gist remains. Requires cortico-world-screen-sense."
+        "description": "Activity Diary turns the Screen Sense event stream into smoothed activity memory and a two-axis state; details fade, only the gist remains. Install and enable cortico-world-screen-sense first."
       }
     },
     "describe": "describe.json",
     "webUiClient": "dist/webui.js",
     "webUiStyle": "dist/webui.css"
   },
-  "files": ["src", "assets", "dist", "describe.json", "README.md", "CHANGELOG.md", "LICENSE"],
+  "files": [
+    "src",
+    "assets",
+    "dist",
+    "describe.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "node scripts/build-webui.mjs",
     "test": "vitest run",

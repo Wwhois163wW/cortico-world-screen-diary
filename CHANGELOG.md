@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- 简介与 README 互相指路：把「窥屏助手」作为配套扩展放在显眼位置，说明安装顺序与可选关系
+- keywords 增加 screen-sense，方便市场搜索
 ## 0.5.3
 
 - flow 事件改用本地时区时间戳（此前 checkin/reengage 写成 UTC，日志里比实际早 9 小时）

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appToken, titleTokens, tokenize, TokenCatalog } from '../src/tokens.ts';
+import { appToken, titleTokens, tokenize, TokenCatalog, TokenWindow } from '../src/tokens.ts';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'screen-diary-words-')); });
@@ -65,5 +65,33 @@ describe('TokenCatalog', () => {
     expect(bilibili?.count).toBe(2);
     expect(bilibili?.weight).toBe(2.5);
     expect(new TokenCatalog(dir).list().find((row) => row.token === 'chrome')?.count).toBe(2);
+  });
+});
+describe('TokenWindow', () => {
+  it('computes a time-decayed centroid', () => {
+    const window = new TokenWindow(15 * 60_000, 5 * 60_000);
+    window.record([{ token: 'deepseek', kind: 'app', coord: [0.8, 0.9], weight: 2 }], 0);
+    const at0 = window.centroid(0);
+    expect(at0.work).toBeCloseTo(0.8);
+    expect(at0.tech).toBeCloseTo(0.9);
+    expect(at0.mass).toBeCloseTo(2);
+  });
+
+  it('lets a recent word outweigh an older one', () => {
+    const window = new TokenWindow(15 * 60_000, 5 * 60_000);
+    window.record([{ token: 'old', kind: 'word', coord: [-0.8, -0.8], weight: 1 }], 0);
+    window.record([{ token: 'new', kind: 'word', coord: [0.8, 0.8], weight: 1 }], 5 * 60_000);
+    const now = 5 * 60_000;
+    const centroid = window.centroid(now);
+    expect(centroid.work).toBeGreaterThan(0);
+    expect(centroid.tech).toBeGreaterThan(0);
+  });
+
+  it('ranks top tokens and prunes the window', () => {
+    const window = new TokenWindow(10 * 60_000, 5 * 60_000);
+    window.record([{ token: 'a', kind: 'word', weight: 3 }], 0);
+    window.record([{ token: 'b', kind: 'word', weight: 1 }], 1_000);
+    expect(window.topK(2_000, 2).map((row) => row.token)).toEqual(['a', 'b']);
+    expect(window.centroid(11 * 60_000)).toEqual({ work: 0, tech: 0, mass: 0 });
   });
 });

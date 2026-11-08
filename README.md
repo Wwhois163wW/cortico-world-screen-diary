@@ -43,7 +43,7 @@ GitHub：[cortico-world-screen-sense](https://github.com/Wwhois163wW/cortico-wor
 | 视频 | bilibili、YouTube、播放器 | -0.5 | -0.8 |
 | 浏览器 | Chrome/Edge | 按标题推断，默认 (0,0) | |
 
-## 词汇与衰减（阶段 1）
+## 词袋状态（已参与计算）
 
 面板里的「词汇与衰减」把**应用名和窗口标题词放在同一张表**：
 
@@ -54,6 +54,14 @@ GitHub：[cortico-world-screen-sense](https://github.com/Wwhois163wW/cortico-wor
 - 只保存 token 与计数，不保存标题原文；通讯类在分词前过滤
 
 这一阶段只做诊断，**不改变现有分类与投影**。下一步会用“切换事件 + 时间衰减”做加权词袋质心，与现有 EMA 轨迹并行对比，再决定是否转正。
+
+词袋现在**正式参与状态计算**（`useWords: true`）：
+
+- 每个应用词带它覆盖后的类别坐标与权重；标题词用内置词库坐标与权重
+- 窗口内每个词按出现次数与时间衰减（半衰期默认 5 分钟）投票，得到 `(工作, 技术)` 质心
+- 质心再经 `smoothing` 的 EMA 平滑，写入轨迹与采样
+- 关闭 `useWords` 时回退到原来的“应用类别投影 + EMA”
+- `diary_state` 与面板显示当前窗口的高频词，作为语义指纹
 
 ## 流枯竭：搭话时机，不是监控
 
@@ -111,6 +119,9 @@ GitHub：[cortico-world-screen-sense](https://github.com/Wwhois163wW/cortico-wor
 | `ignoreApps` | `""` | 额外过滤的应用名片段 |
 | `smoothing` | `0.25` | EMA 平滑强度，0.05 平滑、0.9 灵敏 |
 | `sampleSec` | `30` | 两次状态采样最小间隔 |
+| `useWords` | `true` | 是否用词袋质心计算状态（关闭回退类别 EMA） |
+| `wordWindowMinutes` | `15` | 词袋窗口长度 |
+| `wordHalfLifeMinutes` | `5` | 词权重衰减半衰期 |
 | `source` | `screen-sense` | 生产方 World id |
 | `maxEventsPerPoll` | `500` | 单次导入上限 |
 | `flowDecayMinutes` | `20` | 流枯竭基准窗口，按应用类型乘倍率 |

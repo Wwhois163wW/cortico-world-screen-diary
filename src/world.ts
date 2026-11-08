@@ -12,10 +12,10 @@ import { nowIso, shortTime } from 'cortico/core/util.ts';
 import { DiaryBook, type DiaryEntry } from './book.ts';
 import { diaryConfigGroup, diaryPanelText, diaryStorageText, type DiaryConfigSection } from './config.ts';
 import { MODEL_TEXT, type ModelLanguage, type ModelText } from './model-text.ts';
-import { classify, encodeState, StateFilter, categoryLabel, projectionFor } from './state.ts';
+import { classify, encodeState, StateFilter, categoryLabel, categoryWeight, projectionFor, type Category } from './state.ts';
 import { FlowModel, gapText, type FlowSnapshot } from './flow.ts';
 import { AppCatalog, type AppCategory } from './apps.ts';
-import { TokenCatalog, tokenize } from './tokens.ts';
+import { TokenCatalog, TokenWindow, tokenize, type TokenInput } from './tokens.ts';
 
 const ENV_PROMPT_FILES: Record<ModelLanguage, string> = {
   zh: fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url)),
@@ -110,6 +110,7 @@ export class ScreenDiaryWorld implements World {
   private flow: FlowModel | null = null;
   private catalog: AppCatalog | null = null;
   private tokenCatalog: TokenCatalog | null = null;
+  private wordWindow: TokenWindow | null = null;
   private flowActions: Array<{ type: 'reengage' | 'checkin'; text: string; meta: Record<string, unknown> }> = [];
   /** A check-in that has not been delivered yet; a quick reengage can withdraw it. */
   private pendingCheckin: { cursor: number; at: number } | null = null;
@@ -138,6 +139,10 @@ export class ScreenDiaryWorld implements World {
     this.book = new DiaryBook(join(this.opts.dataDir, 'diary'), this.opts.timezone, Math.max(1, this.opts.cfg.keepDays), Math.max(1, this.opts.cfg.detailHours));
     this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
     this.tokenCatalog = new TokenCatalog(join(this.opts.dataDir, 'diary'));
+    this.wordWindow = new TokenWindow(
+      Math.max(1, this.opts.cfg.wordWindowMinutes) * 60_000,
+      Math.max(1, this.opts.cfg.wordHalfLifeMinutes) * 60_000,
+    );
     this.filter = new StateFilter(this.opts.cfg.smoothing);
     const latest = this.book.samples(1)[0];
     if (latest) {
@@ -254,6 +259,15 @@ export class ScreenDiaryWorld implements World {
     }
   }
 
+  /** Resolve app and title tokens to their voting coordinates and weights. */
+  private tokenInputs(entry: DiaryEntry, projection: { category: Category; tech: number; work: number }): TokenInput[] {
+    const point = projectionFor(projection.category);
+    const weight = categoryWeight(projection.category);
+    return tokenize(entry.app ?? null, entry.title ?? null).map((token) => token.kind === 'app'
+      ? { ...token, coord: [point.work, point.tech] as [number, number], weight }
+      : token);
+  }
+
   /** Privacy filter, projection and smoothing for one event; null means it is not stored at all. */
   private project(entry: DiaryEntry, filter: StateFilter): DiaryEntry | null {
     const app = entry.app ?? '';
@@ -270,10 +284,14 @@ export class ScreenDiaryWorld implements World {
     if (!override?.category && (baseline.filtered || baseline.blurred)) return null;
     const projection = override?.category ? projectionFor(override.category) : baseline;
     const customDecay = override?.decayMinutes ?? 0;
+    const tokenInputs = this.tokenInputs(entry, projection);
     if (entry.type.endsWith('.focus')) {
-      this.tokenCatalog?.record(tokenize(entry.app ?? null, entry.title ?? null), at);
+      this.tokenCatalog?.record(tokenInputs, at);
+      this.wordWindow?.record(tokenInputs, at);
     }
-    const smoothed = filter.observe({ tech: projection.tech, work: projection.work });
+    const bag = this.opts.cfg.useWords ? this.wordWindow?.centroid(at) : null;
+    const target = bag && bag.mass > 0 ? { tech: bag.tech, work: bag.work } : { tech: projection.tech, work: projection.work };
+    const smoothed = filter.observe(target);
     if (at - this.lastSampleAt >= Math.max(5, this.opts.cfg.sampleSec) * 1000) {
       const encoded = encodeState(smoothed.tech, smoothed.work);
       this.book?.addSample({
@@ -441,7 +459,10 @@ export class ScreenDiaryWorld implements World {
     const book = this.book;
     if (!book || book.sampleCount === 0) return { text: this.t.empty };
     const recent = book.samples(10).map((sample) => this.t.recentLine(this.clock(sample.ts), this.modelLanguage() === 'en' ? sample.en : sample.zh));
-    return { text: [this.t.state(this.stateLabel()), this.t.recentHead(recent.length), ...recent].join('\n') };
+    const top = (this.wordWindow?.topK(Date.now(), 5) ?? []).map((row) => row.token);
+    return {
+      text: [this.t.state(this.stateLabel()), top.length ? this.t.topTokens(top.join(' · ')) : '', this.t.recentHead(recent.length), ...recent].filter(Boolean).join('\n'),
+    };
   }
 
   private recentOutcome(args: Record<string, unknown>): ToolOutcome {
@@ -576,6 +597,7 @@ export class ScreenDiaryWorld implements World {
           source: this.opts.cfg.source.trim() || 'screen-sense',
           current: { tech: current.tech, work: current.work, zh: encoded.zh, en: encoded.en, category: encoded.category },
           samples,
+          top: this.wordWindow?.topK(Date.now(), 5) ?? [],
           entries: stats.total,
           days: stats.days,
           lastCursor: book?.cursor ?? 0,
@@ -660,6 +682,10 @@ export class ScreenDiaryWorld implements World {
     const removed = this.book?.clear() ?? 0;
     this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
     this.tokenCatalog = new TokenCatalog(join(this.opts.dataDir, 'diary'));
+    this.wordWindow = new TokenWindow(
+      Math.max(1, this.opts.cfg.wordWindowMinutes) * 60_000,
+      Math.max(1, this.opts.cfg.wordHalfLifeMinutes) * 60_000,
+    );
     this.filter = new StateFilter(this.opts.cfg.smoothing);
     this.lastSampleAt = 0;
     return removed;

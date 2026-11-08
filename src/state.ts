@@ -80,6 +80,11 @@ export function projectionFor(category: Category): Projection {
   return pos(category, tech, work, category === 'ai');
 }
 
+/** How strongly an app category counts in the word bag. */
+export function categoryWeight(category: Category): number {
+  return category === 'develop' || category === 'office' || category === 'video' || category === 'game' || category === 'casual' ? 2 : 0.1;
+}
+
 /** The quadrant and its Chinese/English label for a smoothed point. */
 export function encodeState(tech: number, work: number): { category: Category; zh: string; en: string } {
   if (Math.abs(tech) < 0.2 && Math.abs(work) < 0.2) return { category: 'neutral', zh: '中性', en: 'neutral' };

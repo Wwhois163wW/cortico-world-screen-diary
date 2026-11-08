@@ -11,6 +11,16 @@ import { join } from 'node:path';
 
 export type TokenKind = 'app' | 'word';
 
+export interface TokenInput {
+  token: string;
+  kind: TokenKind;
+  app?: string;
+  /** [work/entertainment, light/heavy] override; defaults to the builtin lexicon. */
+  coord?: [number, number];
+  /** Confidence weight override; defaults to the builtin lexicon. */
+  weight?: number;
+}
+
 export interface TokenRecord {
   token: string;
   kind: TokenKind;
@@ -145,6 +155,75 @@ export function lexiconFor(token: string): LexiconPoint {
   return BUILTIN[token] ?? { coord: [0, 0], weight: 0.1 };
 }
 
+export interface WeightedToken {
+  token: string;
+  /** [work/entertainment, light/heavy] */
+  coord: [number, number];
+  weight: number;
+  at: number;
+}
+
+/**
+ * Time-decayed word bag over a sliding window: each sighting contributes
+ * `weight * 0.5^(age / halfLife)` to the centroid, so old title words fade out.
+ */
+export class TokenWindow {
+  private sightings: WeightedToken[] = [];
+
+  constructor(private readonly windowMs = 15 * 60_000, private readonly halfLifeMs = 5 * 60_000) {}
+
+  record(tokens: ReadonlyArray<TokenInput>, at: number): void {
+    for (const token of tokens) {
+      const point = lexiconFor(token.token);
+      this.sightings.push({
+        token: token.token,
+        coord: token.coord ?? point.coord,
+        weight: token.weight ?? point.weight,
+        at,
+      });
+    }
+    this.prune(at);
+  }
+
+  /** Weighted centroid over the window, in [work, tech]. */
+  centroid(now = Date.now()): { work: number; tech: number; mass: number } {
+    this.prune(now);
+    let work = 0, tech = 0, mass = 0;
+    for (const sighting of this.sightings) {
+      const decay = Math.pow(0.5, Math.max(0, now - sighting.at) / this.halfLifeMs);
+      const weight = sighting.weight * decay;
+      work += sighting.coord[0] * weight;
+      tech += sighting.coord[1] * weight;
+      mass += weight;
+    }
+    if (mass === 0) return { work: 0, tech: 0, mass: 0 };
+    return { work: work / mass, tech: tech / mass, mass };
+  }
+
+  /** Most influential tokens in the window, highest first. */
+  topK(now = Date.now(), limit = 5): Array<{ token: string; weight: number }> {
+    this.prune(now);
+    const weights = new Map<string, number>();
+    for (const sighting of this.sightings) {
+      const decay = Math.pow(0.5, Math.max(0, now - sighting.at) / this.halfLifeMs);
+      weights.set(sighting.token, (weights.get(sighting.token) ?? 0) + sighting.weight * decay);
+    }
+    return [...weights.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, Math.max(1, limit))
+      .map(([token, weight]) => ({ token, weight: Math.round(weight * 100) / 100 }));
+  }
+
+  clear(): void {
+    this.sightings = [];
+  }
+
+  private prune(now: number): void {
+    const cutoff = now - this.windowMs;
+    if (this.sightings.length === 0 || this.sightings[0]!.at > cutoff) return;
+    this.sightings = this.sightings.filter((sighting) => sighting.at >= cutoff);
+  }
+}
 const FILE = 'tokens.json';
 const MAX_TOKENS = 5000;
 
@@ -156,14 +235,16 @@ export class TokenCatalog {
     this.load();
   }
 
-  record(tokens: ReadonlyArray<{ token: string; kind: TokenKind; app?: string }>, at: number): void {
+  record(tokens: ReadonlyArray<TokenInput>, at: number): void {
     const seen = new Date(at).toISOString();
     for (const token of tokens) {
       const point = lexiconFor(token.token);
+      const coord = token.coord ?? point.coord;
+      const weight = token.weight ?? point.weight;
       const existing = this.records.get(token.token);
       this.records.set(token.token, existing
-        ? { ...existing, count: existing.count + 1, lastSeen: seen, ...(token.app ? { app: token.app } : {}) }
-        : { token: token.token, kind: token.kind, count: 1, lastSeen: seen, coord: point.coord, weight: point.weight, ...(token.app ? { app: token.app } : {}) });
+        ? { ...existing, count: existing.count + 1, lastSeen: seen, coord, weight, ...(token.app ? { app: token.app } : {}) }
+        : { token: token.token, kind: token.kind, count: 1, lastSeen: seen, coord, weight, ...(token.app ? { app: token.app } : {}) });
     }
     this.prune();
     this.save();

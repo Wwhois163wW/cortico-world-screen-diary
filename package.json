@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-screen-diary",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "type": "module",
   "description": "活动日记：把窥屏助手的事件流整理成平滑的活动记忆与二维状态；细节会淡忘，只留大概。先安装并启用 cortico-world-screen-sense。",
   "author": "Wwhois163wW",

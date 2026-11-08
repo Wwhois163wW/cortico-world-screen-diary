@@ -19,6 +19,12 @@ export interface DiaryConfig {
   detailHours: number;
   /** Minimum gap between two stored state samples, seconds. */
   sampleSec: number;
+  /** Blend app/title tokens into the state with a time-decayed word bag. */
+  useWords: boolean;
+  /** Word-bag sliding window in minutes. */
+  wordWindowMinutes: number;
+  /** Half-life of a token weight in minutes. */
+  wordHalfLifeMinutes: number;
   /** Base flow-decay window in minutes (per-category multipliers apply). */
   flowDecayMinutes: number;
   /** Optional proactive check-in when the flow depletes; default off. */
@@ -41,6 +47,9 @@ export const DIARY_DEFAULTS: DiaryConfig = {
   smoothing: 0.25,
   detailHours: 72,
   sampleSec: 30,
+  useWords: true,
+  wordWindowMinutes: 15,
+  wordHalfLifeMinutes: 5,
   flowDecayMinutes: 20,
   checkInEnabled: false,
   awayAfterMinutes: 10,
@@ -76,6 +85,12 @@ function diaryText(language: Language) {
     detailDesc: '窗口标题、速写与正文只保留这么久，之后只留下平滑状态。',
     sampleTitle: '采样间隔',
     sampleDesc: '两次状态采样至少隔这么多秒。',
+    wordsTitle: '用词袋计算状态',
+    wordsDesc: '应用词的坐标与标题词一起按时间衰减投票，决定状态方向；关闭则回退到应用类别 EMA。',
+    wordWindowTitle: '词袋窗口',
+    wordWindowDesc: '只有最近这么多分钟内的词参与状态计算。',
+    halfLifeTitle: '词衰减半衰期',
+    halfLifeDesc: '一个词的权重多久衰减一半；越小越只看当下。',
     flowTitle: '流枯竭窗口',
     flowDesc: '多久没有窗口切换算专注或离开；按应用类型乘倍率（开发/文书 20 分、视频 30、游戏 12、浏览器 8）。',
     checkInTitle: '枯竭时主动搭话',
@@ -115,6 +130,12 @@ function diaryText(language: Language) {
     detailDesc: 'Window titles, captions and text are kept this long, then only smoothed state remains.',
     sampleTitle: 'Sample interval',
     sampleDesc: 'At least this many seconds between two stored state samples.',
+    wordsTitle: 'Word-bag state',
+    wordsDesc: 'App and title tokens vote with time decay; off falls back to the category EMA.',
+    wordWindowTitle: 'Word window',
+    wordWindowDesc: 'Only tokens from this many minutes back feed the state.',
+    halfLifeTitle: 'Token half-life',
+    halfLifeDesc: 'How fast a token weight halves; smaller looks at the present only.',
     flowTitle: 'Flow decay',
     flowDesc: 'Silence that counts as focus or away; each app type multiplies the base (dev/office 20m, video 30m, game 12m, browser 8m).',
     checkInTitle: 'Check in when depleted',
@@ -236,6 +257,9 @@ export function diaryConfigGroup(language: Language = 'zh'): ConfigGroup {
         [`${K}.checkInEnabled`]: { type: 'boolean', title: t.checkInTitle, description: t.checkInDesc, 'x-hot': true },
         [`${K}.awayAfterMinutes`]: { type: 'integer', title: t.awayTitle, description: t.awayDesc, minimum: 1, maximum: 120, 'x-suffix': 'min' },
         [`${K}.checkInCooldownMinutes`]: { type: 'integer', title: t.cooldownTitle, description: t.cooldownDesc, minimum: 5, maximum: 1440, 'x-suffix': 'min' },
+        [`${K}.useWords`]: { type: 'boolean', title: t.wordsTitle, description: t.wordsDesc, 'x-hot': true },
+        [`${K}.wordWindowMinutes`]: { type: 'integer', title: t.wordWindowTitle, description: t.wordWindowDesc, minimum: 1, maximum: 240, 'x-suffix': 'min' },
+        [`${K}.wordHalfLifeMinutes`]: { type: 'integer', title: t.halfLifeTitle, description: t.halfLifeDesc, minimum: 1, maximum: 120, 'x-suffix': 'min' },
         [`${K}.source`]: { type: 'string', title: t.sourceTitle, description: t.sourceDesc },
         [`${K}.maxEventsPerPoll`]: { type: 'integer', title: t.maxTitle, description: t.maxDesc, minimum: 1, maximum: 5000 },
       },

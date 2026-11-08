@@ -17,6 +17,7 @@ const zh = {
   },
   reengage: (gap: string, category: string) => `[presence] 安静了 ${gap} 后回到${category}。`,
   checkin: (gap: string, category: string) => `[presence] 已经 ${gap} 没有窗口切换，可能专注或离开（最后在${category}）。可以提醒休息，或轻声确认。`,
+  topTokens: (tokens: string) => `[diary] 当前窗口高频词：${tokens}`,
   appsHead: (n: number) => `[diary] 最近见过的 ${n} 个应用：`,
   appLine: (app: string, category: string, decay: number, count: number) =>
     `${app} · ${category}` + (decay > 0 ? ` · 衰减 ${decay} 分` : '') + ` · ${count} 次`,
@@ -42,6 +43,7 @@ const en: typeof zh = {
   },
   reengage: (gap, category) => `[presence] Back to ${category} after ${gap} of quiet.`,
   checkin: (gap, category) => `[presence] ${gap} without a window switch; possibly focused or away (last: ${category}). A break reminder or a soft check-in fits.`,
+  topTokens: (tokens) => `[diary] Top tokens in the current window: ${tokens}`,
   appsHead: (n) => `[diary] The ${n} apps seen most recently:`,
   appLine: (app, category, decay, count) =>
     `${app} · ${category}` + (decay > 0 ? ` · decay ${decay}m` : '') + ` · ${count} sightings`,

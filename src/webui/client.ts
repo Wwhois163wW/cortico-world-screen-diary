@@ -9,6 +9,7 @@ interface State {
   source: string;
   current: { tech: number; work: number; zh: string; en: string; category: string };
   samples: Point[];
+  top: Array<{ token: string; weight: number }>;
   entries: number;
   days: number;
   lastCursor: number;
@@ -68,6 +69,8 @@ const timelinePanel: WebUiPanel = {
 
     const current = document.createElement('div');
     current.style.cssText = 'font-size:14px;font-weight:600';
+    const topLine = document.createElement('div');
+    topLine.style.cssText = 'font-size:12px;opacity:.7';
 
     const chart = el('svg', { viewBox: '0 0 420 300', width: '100%', height: '300', style: 'max-width:520px;align-self:center' });
     const chartBox = document.createElement('div');
@@ -158,6 +161,7 @@ const timelinePanel: WebUiPanel = {
         const state = await ctx.invoke<State>('state');
         count.textContent = `${state.days} 天 · ${state.samples.length} 采样`;
         current.textContent = t.current(label(state.current));
+        topLine.textContent = state.top && state.top.length ? (zh ? '高频词：' : 'Top tokens: ') + state.top.map((row) => row.token).join(' · ') : '';
         if (state.samples.length === 0) {
           notice.textContent = t.waitingProducer(state.source);
         }
@@ -185,7 +189,7 @@ const timelinePanel: WebUiPanel = {
       })();
     });
 
-    root.append(bar, current, chartBox, detailsTitle, detailsNote, detailBar, notice, list);
+    root.append(bar, current, topLine, chartBox, detailsTitle, detailsNote, detailBar, notice, list);
     ctx.root.append(root);
     void load();
     return { dispose() {} };

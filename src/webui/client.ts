@@ -200,11 +200,19 @@ interface WordRow {
   token: string;
   kind: 'app' | 'word';
   app?: string;
+  source: 'app' | 'builtin' | 'custom' | 'unknown';
   count: number;
   lastSeen: string;
   coord: [number, number];
   weight: number;
 }
+
+const SOURCE_LABEL = (source: WordRow['source'], zh: boolean): string => {
+  if (source === 'app') return zh ? '应用' : 'app';
+  if (source === 'builtin') return zh ? '内置' : 'builtin';
+  if (source === 'custom') return zh ? '自定义' : 'custom';
+  return zh ? '未知' : 'unknown';
+};
 
 const APP_OPTIONS = [
   ['develop', '开发', 'Development'],
@@ -217,7 +225,6 @@ const APP_OPTIONS = [
   ['neutral', '中性', 'Neutral'],
   ['filtered', '过滤', 'Filtered'],
 ] as const;
-
 const wordsPanel: WebUiPanel = {
   mount(ctx: WebUiPanelContext) {
     const zh = ctx.language === 'zh' || ctx.language === 'zh-Hant';
@@ -229,24 +236,25 @@ const wordsPanel: WebUiPanel = {
     title.style.cssText = 'font-size:14px;font-weight:600';
     const note = document.createElement('div');
     note.textContent = zh
-      ? '应用名与窗口标题词同表；坐标 = [工作/娱乐, 轻/重]，权重越高越能拉动状态。标题只以词频形式保留。通讯类默认过滤；应用词可覆盖类型与流枯竭窗口。'
-      : 'App names and title words share one table; coordinates are [work/entertainment, light/heavy] and heavier words pull the state more. Titles are kept only as token counts. Communication apps are filtered by default; app tokens can override category and decay.';
-    note.style.cssText = 'font-size:12px;opacity:.7;max-width:800px';
+      ? '应用名与标题词同表；坐标 = [工作/娱乐, 轻/重]，权重越高越能拉动状态。应用词改类型/衰减；标题词可直接改坐标/权重，手动编辑会存为自定义词并保留编辑记录。标题只以词频形式保留。'
+      : 'App names and title words share one table; coordinates are [work/entertainment, light/heavy]. App tokens edit category/decay; title words can edit coordinates/weight directly, saved as custom words with an edit history. Titles are kept only as token counts.';
+    note.style.cssText = 'font-size:12px;opacity:.7;max-width:820px';
 
-    const status = document.createElement('div');
-    status.style.cssText = 'font-size:12px;opacity:.75;min-height:16px';
     const controls = document.createElement('label');
     controls.style.cssText = 'display:flex;gap:6px;align-items:center;font-size:12px;opacity:.75;cursor:pointer';
     const showAll = document.createElement('input');
     showAll.type = 'checkbox';
     const showAllText = document.createElement('span');
-    showAllText.textContent = zh ? '显示未知词（权重 0.1）' : 'Show unknown tokens (weight 0.1)';
+    showAllText.textContent = zh ? '显示未知词' : 'Show unknown words';
     controls.append(showAll, showAllText);
     showAll.addEventListener('change', () => void load());
+
+    const status = document.createElement('div');
+    status.style.cssText = 'font-size:12px;opacity:.75;min-height:16px';
     const table = document.createElement('div');
     table.style.cssText = 'display:flex;flex-direction:column;gap:6px';
 
-    const COLUMNS = 'minmax(150px,1.6fr) 52px 56px 56px 52px minmax(150px,1fr) 96px';
+    const COLUMNS = 'minmax(130px,1.4fr) 44px 58px 52px 52px 46px minmax(250px,2fr)';
 
     const header = (): HTMLElement => {
       const head = document.createElement('div');
@@ -254,20 +262,39 @@ const wordsPanel: WebUiPanel = {
       const labels = [
         zh ? '词' : 'token',
         zh ? '次数' : 'count',
+        zh ? '来源' : 'source',
         zh ? '工作' : 'work',
         zh ? '技术' : 'tech',
         zh ? '权重' : 'weight',
-        zh ? '类型 / 衰减' : 'type / decay',
-        zh ? '操作' : 'action',
+        zh ? '编辑' : 'edit',
       ];
       for (let i = 0; i < labels.length; i += 1) {
         const cell = document.createElement('span');
         cell.textContent = labels[i]!;
-        if (i >= 1 && i <= 4) cell.style.textAlign = 'right';
-        if (i === 6) cell.style.textAlign = 'right';
+        if (i >= 1 && i <= 5) cell.style.textAlign = 'right';
         head.append(cell);
       }
       return head;
+    };
+
+    const field = (value: number | string, width: number): HTMLInputElement => {
+      const input = document.createElement('input');
+      if (typeof value === 'number') {
+        input.type = 'number';
+        input.step = '0.1';
+        input.value = String(value);
+      } else {
+        input.value = value;
+      }
+      input.style.cssText = 'width:' + width + 'px;font:inherit;font-size:12px;padding:3px 4px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
+      return input;
+    };
+
+    const actionButton = (label: string, danger = false): HTMLButtonElement => {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.style.cssText = 'font:inherit;font-size:12px;padding:3px 8px;border-radius:5px;cursor:pointer;border:1px solid rgba(128,128,128,.45);background:' + (danger ? 'rgba(200,60,60,.12)' : 'transparent') + ';color:inherit';
+      return button;
     };
 
     const renderRow = (row: WordRow): HTMLElement => {
@@ -279,6 +306,9 @@ const wordsPanel: WebUiPanel = {
       const count = document.createElement('span');
       count.textContent = row.count + ' ×';
       count.style.cssText = 'opacity:.65;font-size:12px;text-align:right';
+      const source = document.createElement('span');
+      source.textContent = SOURCE_LABEL(row.source, zh);
+      source.style.cssText = 'font-size:11px;opacity:' + (row.source === 'custom' ? '1' : '.55');
       const work = document.createElement('span');
       work.textContent = row.coord[0].toFixed(2);
       work.style.cssText = 'opacity:.7;font-size:12px;text-align:right;font-family:ui-monospace,monospace';
@@ -288,80 +318,118 @@ const wordsPanel: WebUiPanel = {
       const weight = document.createElement('span');
       weight.textContent = row.weight.toFixed(1);
       weight.style.cssText = 'opacity:.7;font-size:12px;text-align:right;font-family:ui-monospace,monospace';
-      line.append(token, count, work, tech, weight);
+      line.append(token, count, source, work, tech, weight);
 
-      if (row.kind !== 'app' || !row.app) {
-        const kind = document.createElement('span');
-        kind.textContent = zh ? '标题词 · 只读' : 'title word · read-only';
-        kind.style.cssText = 'font-size:11px;opacity:.45';
-        const dash = document.createElement('span');
-        dash.textContent = '—';
-        dash.style.cssText = 'opacity:.3;text-align:right';
-        line.append(kind, dash);
-        return line;
+      const tools = document.createElement('div');
+      tools.style.cssText = 'display:flex;gap:4px;align-items:center;flex-wrap:wrap;justify-content:flex-end';
+
+      if (row.kind === 'app' && row.app) {
+        const select = document.createElement('select');
+        select.style.cssText = 'font:inherit;font-size:12px;padding:3px 4px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4);max-width:110px';
+        const auto = document.createElement('option');
+        auto.value = '';
+        auto.textContent = zh ? '跟随默认' : 'default';
+        select.append(auto);
+        for (const [value, labelZh, labelEn] of APP_OPTIONS) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = zh ? labelZh : labelEn;
+          select.append(option);
+        }
+        const decay = field('', 58);
+        decay.placeholder = zh ? '衰减' : 'decay';
+        decay.title = zh ? '留空跟随类别默认' : 'Empty follows the category default';
+        const save = actionButton(zh ? '保存' : 'Save');
+        save.addEventListener('click', () => {
+          void (async () => {
+            try {
+              const minutes = decay.value.trim() ? Number(decay.value) : 0;
+              await ctx.invoke('setApp', [row.app, select.value || null, minutes]);
+              await load();
+            } catch (err) {
+              status.textContent = (zh ? '保存失败' : 'Save failed') + ': ' + (err instanceof Error ? err.message : String(err));
+            }
+          })();
+        });
+        tools.append(select, decay, save);
+      } else {
+        const workInput = field(row.coord[0], 52);
+        const techInput = field(row.coord[1], 52);
+        const weightInput = field(row.weight, 46);
+        const save = actionButton(zh ? '保存' : 'Save');
+        save.addEventListener('click', () => {
+          void (async () => {
+            try {
+              await ctx.invoke('setWord', [row.token, Number(workInput.value), Number(techInput.value), Number(weightInput.value)]);
+              await load();
+            } catch (err) {
+              status.textContent = (zh ? '保存失败' : 'Save failed') + ': ' + (err instanceof Error ? err.message : String(err));
+            }
+          })();
+        });
+        tools.append(workInput, techInput, weightInput, save);
+        if (row.source === 'custom') {
+          const reset = actionButton(zh ? '恢复' : 'Reset', true);
+          reset.addEventListener('click', () => {
+            void (async () => {
+              try {
+                await ctx.invoke('resetWord', [row.token]);
+                await load();
+              } catch (err) {
+                status.textContent = (zh ? '恢复失败' : 'Reset failed') + ': ' + (err instanceof Error ? err.message : String(err));
+              }
+            })();
+          });
+          tools.append(reset);
+        }
       }
-
-      const controls = document.createElement('div');
-      controls.style.cssText = 'display:flex;gap:4px;align-items:center;min-width:0';
-      const select = document.createElement('select');
-      select.style.cssText = 'font:inherit;font-size:12px;padding:3px 4px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4);min-width:0;flex:1';
-      const auto = document.createElement('option');
-      auto.value = '';
-      auto.textContent = zh ? '跟随默认' : 'default';
-      select.append(auto);
-      for (const [value, labelZh, labelEn] of APP_OPTIONS) {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = zh ? labelZh : labelEn;
-        select.append(option);
-      }
-      const decay = document.createElement('input');
-      decay.type = 'number';
-      decay.min = '1';
-      decay.max = '180';
-      decay.placeholder = zh ? '默认' : 'def';
-      decay.title = zh ? '留空跟随该类型的默认窗口' : 'Empty follows the category default';
-      decay.style.cssText = 'width:62px;font:inherit;font-size:12px;padding:3px 4px;border-radius:5px;background:transparent;color:inherit;border:1px solid rgba(128,128,128,.4)';
-      controls.append(select, decay);
-
-      const action = document.createElement('div');
-      action.style.cssText = 'display:flex;justify-content:flex-end';
-      const save = document.createElement('button');
-      save.textContent = zh ? '保存' : 'Save';
-      save.style.cssText = 'font:inherit;font-size:12px;padding:3px 9px;border-radius:5px;cursor:pointer;border:1px solid rgba(128,128,128,.45);background:transparent;color:inherit';
-      save.addEventListener('click', () => {
-        void (async () => {
-          try {
-            const minutes = decay.value.trim() ? Number(decay.value) : 0;
-            await ctx.invoke('setApp', [row.app, select.value || null, minutes]);
-            status.textContent = zh ? '已保存 ' + row.app : 'Saved ' + row.app;
-          } catch (err) {
-            status.textContent = (zh ? '保存失败' : 'Save failed') + ': ' + (err instanceof Error ? err.message : String(err));
-          }
-        })();
-      });
-      action.append(save);
-      line.append(controls, action);
+      line.append(tools);
       return line;
     };
+
+    const historyTitle = document.createElement('div');
+    historyTitle.textContent = zh ? '最近编辑' : 'Recent edits';
+    historyTitle.style.cssText = 'font-size:12px;font-weight:600;opacity:.8;margin-top:4px';
+    const historyBox = document.createElement('div');
+    historyBox.style.cssText = 'display:flex;flex-direction:column;gap:3px;font-size:11px;opacity:.75';
+
+    const loadHistory = async () => {
+      historyBox.replaceChildren();
+      try {
+        const data = await ctx.invoke<{ history: Array<{ token: string; at: string; action: string; before?: { coord: [number, number]; weight: number }; after?: { coord: [number, number]; weight: number } }> }>('wordHistory');
+        if (!data.history.length) {
+          historyBox.textContent = zh ? '还没有手动编辑' : 'No manual edits yet';
+          return;
+        }
+        for (const edit of data.history.slice(0, 8)) {
+          const row = document.createElement('div');
+          const after = edit.after ? `(${edit.after.coord[0].toFixed(2)}, ${edit.after.coord[1].toFixed(2)}) w=${edit.after.weight.toFixed(1)}` : '';
+          row.textContent = `${new Date(edit.at).toLocaleString()} ${edit.action} ${edit.token} ${after}`;
+          historyBox.append(row);
+        }
+      } catch {
+        /* history is optional */
+      }
+    };
+
     const load = async () => {
       table.replaceChildren();
       status.textContent = zh ? '读取中…' : 'Loading…';
       try {
         const data = await ctx.invoke<{ words: WordRow[] }>('words');
-        const rows = data.words;
-        const visible = showAll.checked ? rows : rows.filter((row) => row.kind === 'app' || row.weight > 0.1);
+        const visible = showAll.checked ? data.words : data.words.filter((row) => row.kind === 'app' || row.source !== 'unknown');
         status.textContent = visible.length
-          ? `${visible.length} / ${rows.length} ${zh ? '个词' : 'tokens'}`
-          : (zh ? '还没有采集到有信号词；可勾选“显示未知词”查看全部' : 'No signal tokens yet; enable “Show unknown tokens” to see everything');
+          ? `${visible.length} / ${data.words.length} ${zh ? '个词' : 'tokens'}`
+          : (zh ? '还没有采集到有信号词；可勾选“显示未知词”查看全部' : 'No signal tokens yet; enable “Show unknown words” to see everything');
         table.append(header());
         for (const row of visible) table.append(renderRow(row));
+        await loadHistory();
       } catch (err) {
-        status.textContent = `${zh ? '读取失败' : 'Failed'}: ${err instanceof Error ? err.message : String(err)}`;
+        status.textContent = (zh ? '读取失败' : 'Failed') + ': ' + (err instanceof Error ? err.message : String(err));
       }
     };
 
-    root.append(title, note, controls, status, table);
+    root.append(title, note, controls, status, table, historyTitle, historyBox);
     ctx.root.append(root);
     void load();
     return { dispose() {} };

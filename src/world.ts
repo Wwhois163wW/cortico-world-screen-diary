@@ -15,7 +15,7 @@ import { MODEL_TEXT, type ModelLanguage, type ModelText } from './model-text.ts'
 import { classify, encodeState, StateFilter, categoryLabel, categoryWeight, projectionFor, type Category } from './state.ts';
 import { FlowModel, gapText, type FlowSnapshot } from './flow.ts';
 import { AppCatalog, type AppCategory } from './apps.ts';
-import { TokenCatalog, TokenWindow, tokenize, type TokenInput } from './tokens.ts';
+import { LexiconStore, TokenCatalog, TokenWindow, tokenize, type TokenInput } from './tokens.ts';
 
 const ENV_PROMPT_FILES: Record<ModelLanguage, string> = {
   zh: fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url)),
@@ -110,6 +110,7 @@ export class ScreenDiaryWorld implements World {
   private flow: FlowModel | null = null;
   private catalog: AppCatalog | null = null;
   private tokenCatalog: TokenCatalog | null = null;
+  private lexiconStore: LexiconStore | null = null;
   private wordWindow: TokenWindow | null = null;
   private flowActions: Array<{ type: 'reengage' | 'checkin'; text: string; meta: Record<string, unknown> }> = [];
   /** A check-in that has not been delivered yet; a quick reengage can withdraw it. */
@@ -139,6 +140,7 @@ export class ScreenDiaryWorld implements World {
     this.book = new DiaryBook(join(this.opts.dataDir, 'diary'), this.opts.timezone, Math.max(1, this.opts.cfg.keepDays), Math.max(1, this.opts.cfg.detailHours));
     this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
     this.tokenCatalog = new TokenCatalog(join(this.opts.dataDir, 'diary'));
+    this.lexiconStore = new LexiconStore(join(this.opts.dataDir, 'diary'));
     this.wordWindow = new TokenWindow(
       Math.max(1, this.opts.cfg.wordWindowMinutes) * 60_000,
       Math.max(1, this.opts.cfg.wordHalfLifeMinutes) * 60_000,
@@ -263,9 +265,11 @@ export class ScreenDiaryWorld implements World {
   private tokenInputs(entry: DiaryEntry, projection: { category: Category; tech: number; work: number }): TokenInput[] {
     const point = projectionFor(projection.category);
     const weight = categoryWeight(projection.category);
-    return tokenize(entry.app ?? null, entry.title ?? null).map((token) => token.kind === 'app'
-      ? { ...token, coord: [point.work, point.tech] as [number, number], weight }
-      : token);
+    return tokenize(entry.app ?? null, entry.title ?? null).map((token) => {
+      if (token.kind === 'app') return { ...token, coord: [point.work, point.tech] as [number, number], weight, source: 'app' };
+      const custom = this.lexiconStore?.lookup(token.token);
+      return custom ? { ...token, coord: custom.coord, weight: custom.weight, source: custom.source } : token;
+    });
   }
 
   /** Privacy filter, projection and smoothing for one event; null means it is not stored at all. */
@@ -660,7 +664,13 @@ export class ScreenDiaryWorld implements World {
       }
       case 'words': {
         const limit = typeof args[0] === 'number' && Number.isFinite(args[0]) ? Math.min(1000, Math.max(1, Math.round(args[0]))) : 300;
-        return { words: this.tokenCatalog?.list(limit) ?? [] };
+        const rows = this.tokenCatalog?.list(limit) ?? [];
+        return {
+          words: rows.map((row) => ({
+            ...row,
+            source: row.source ?? this.lexiconStore?.lookup(row.token).source ?? 'unknown',
+          })),
+        };
       }
       case 'setApp': {
         const [appArg, categoryArg, decayArg] = args;
@@ -671,6 +681,28 @@ export class ScreenDiaryWorld implements World {
         const record = this.catalog?.setPolicy(app, category, decay);
         return { record: record ?? null };
       }
+      case 'setWord': {
+        const [tokenArg, workArg, techArg, weightArg] = args;
+        const token = typeof tokenArg === 'string' ? tokenArg.trim() : '';
+        const work = typeof workArg === 'number' && Number.isFinite(workArg) ? Math.max(-1, Math.min(1, workArg)) : NaN;
+        const tech = typeof techArg === 'number' && Number.isFinite(techArg) ? Math.max(-1, Math.min(1, techArg)) : NaN;
+        const weight = typeof weightArg === 'number' && Number.isFinite(weightArg) ? Math.max(0.1, Math.min(3, weightArg)) : NaN;
+        if (!token || !Number.isFinite(work) || !Number.isFinite(tech) || !Number.isFinite(weight)) {
+          return { ok: false, error: 'invalid token or coordinate' };
+        }
+        const entry = this.lexiconStore?.set(token, [work, tech], weight);
+        this.tokenCatalog?.refresh(token, [work, tech], weight, 'custom');
+        return { ok: Boolean(entry), entry };
+      }
+      case 'resetWord': {
+        const token = typeof args[0] === 'string' ? args[0].trim() : '';
+        const ok = token ? (this.lexiconStore?.reset(token) ?? false) : false;
+        const point = token ? this.lexiconStore?.lookup(token) : undefined;
+        if (token && point) this.tokenCatalog?.refresh(token, point.coord, point.weight, point.source);
+        return { ok, point };
+      }
+      case 'wordHistory':
+        return { history: this.lexiconStore?.history(30) ?? [] };
       case 'clear':
         return { removed: this.clear() };
       default:
@@ -682,6 +714,7 @@ export class ScreenDiaryWorld implements World {
     const removed = this.book?.clear() ?? 0;
     this.catalog = new AppCatalog(join(this.opts.dataDir, 'diary'));
     this.tokenCatalog = new TokenCatalog(join(this.opts.dataDir, 'diary'));
+    this.lexiconStore = new LexiconStore(join(this.opts.dataDir, 'diary'));
     this.wordWindow = new TokenWindow(
       Math.max(1, this.opts.cfg.wordWindowMinutes) * 60_000,
       Math.max(1, this.opts.cfg.wordHalfLifeMinutes) * 60_000,

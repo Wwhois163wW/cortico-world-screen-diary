@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appToken, titleTokens, tokenize, TokenCatalog, TokenWindow } from '../src/tokens.ts';
+import { appToken, titleTokens, tokenize, TokenCatalog, TokenWindow, LexiconStore } from '../src/tokens.ts';
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'screen-diary-words-')); });
@@ -93,5 +93,34 @@ describe('TokenWindow', () => {
     window.record([{ token: 'b', kind: 'word', weight: 1 }], 1_000);
     expect(window.topK(2_000, 2).map((row) => row.token)).toEqual(['a', 'b']);
     expect(window.centroid(11 * 60_000)).toEqual({ work: 0, tech: 0, mass: 0 });
+  });
+});
+describe('LexiconStore', () => {
+  it('custom wins over builtin and survives a reload', () => {
+    const store = new LexiconStore(dir);
+    expect(store.lookup('bilibili').source).toBe('builtin');
+    store.set('bilibili', [0.8, 0.8], 2.5);
+    expect(store.lookup('bilibili')).toMatchObject({ source: 'custom', coord: [0.8, 0.8], weight: 2.5 });
+    const reopened = new LexiconStore(dir);
+    expect(reopened.lookup('bilibili')).toMatchObject({ source: 'custom', coord: [0.8, 0.8] });
+  });
+
+  it('unknown words can be added and reset', () => {
+    const store = new LexiconStore(dir);
+    expect(store.lookup('some-unknown-word').source).toBe('unknown');
+    store.set('some-unknown-word', [0.5, -0.5], 1.6);
+    expect(store.lookup('some-unknown-word').source).toBe('custom');
+    expect(store.reset('some-unknown-word')).toBe(true);
+    expect(store.lookup('some-unknown-word').source).toBe('unknown');
+  });
+
+  it('keeps an edit history', () => {
+    const store = new LexiconStore(dir);
+    store.set('custom-token', [0.2, 0.3], 1.2);
+    store.set('custom-token', [0.4, 0.5], 1.8);
+    const history = store.history(10);
+    expect(history.length).toBe(2);
+    expect(history[0]?.action).toBe('set');
+    expect(history[0]?.after).toMatchObject({ coord: [0.4, 0.5], weight: 1.8 });
   });
 });

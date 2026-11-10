@@ -10,11 +10,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export type TokenKind = 'app' | 'word';
+export type TokenSource = 'app' | 'builtin' | 'custom' | 'unknown';
 
 export interface TokenInput {
   token: string;
   kind: TokenKind;
   app?: string;
+  source?: TokenSource;
   /** [work/entertainment, light/heavy] override; defaults to the builtin lexicon. */
   coord?: [number, number];
   /** Confidence weight override; defaults to the builtin lexicon. */
@@ -24,6 +26,7 @@ export interface TokenInput {
 export interface TokenRecord {
   token: string;
   kind: TokenKind;
+  source: TokenSource;
   /** Original process name for app tokens, used by the per-app policy editor. */
   app?: string;
   count: number;
@@ -242,9 +245,10 @@ export class TokenCatalog {
       const coord = token.coord ?? point.coord;
       const weight = token.weight ?? point.weight;
       const existing = this.records.get(token.token);
+      const source = token.source ?? existing?.source ?? (token.kind === 'app' ? 'app' : 'unknown');
       this.records.set(token.token, existing
-        ? { ...existing, count: existing.count + 1, lastSeen: seen, coord, weight, ...(token.app ? { app: token.app } : {}) }
-        : { token: token.token, kind: token.kind, count: 1, lastSeen: seen, coord, weight, ...(token.app ? { app: token.app } : {}) });
+        ? { ...existing, count: existing.count + 1, lastSeen: seen, coord, weight, source, ...(token.app ? { app: token.app } : {}) }
+        : { token: token.token, kind: token.kind, source, count: 1, lastSeen: seen, coord, weight, ...(token.app ? { app: token.app } : {}) });
     }
     this.prune();
     this.save();
@@ -257,6 +261,14 @@ export class TokenCatalog {
 
   count(): number {
     return this.records.size;
+  }
+
+  /** Reflect a custom edit in the already-collected table. */
+  refresh(token: string, coord: [number, number], weight: number, source: TokenSource): void {
+    const record = this.records.get(token);
+    if (!record) return;
+    this.records.set(token, { ...record, coord, weight, source });
+    this.save();
   }
 
   private prune(): void {
@@ -281,6 +293,101 @@ export class TokenCatalog {
       for (const row of rows) if (row && typeof row.token === 'string') this.records.set(row.token, row);
     } catch {
       /* start empty */
+    }
+  }
+}
+export interface CustomEntry {
+  token: string;
+  /** [work/entertainment, light/heavy] */
+  coord: [number, number];
+  weight: number;
+  updatedAt: string;
+}
+
+export interface LexiconEdit {
+  token: string;
+  at: string;
+  action: 'set' | 'reset';
+  before?: { coord: [number, number]; weight: number };
+  after?: { coord: [number, number]; weight: number };
+}
+
+interface LexiconFile {
+  entries: CustomEntry[];
+  history: LexiconEdit[];
+}
+
+const LEXICON_FILE = 'lexicon.json';
+const HISTORY_LIMIT = 200;
+
+/** Persistent custom words; custom wins over builtin, otherwise builtin, otherwise unknown. */
+export class LexiconStore {
+  private entries = new Map<string, CustomEntry>();
+  private edits: LexiconEdit[] = [];
+
+  constructor(private readonly dir: string) {
+    this.load();
+  }
+
+  lookup(token: string): { coord: [number, number]; weight: number; source: 'builtin' | 'custom' | 'unknown' } {
+    const custom = this.entries.get(token);
+    if (custom) return { coord: custom.coord, weight: custom.weight, source: 'custom' };
+    const builtin = BUILTIN[token];
+    if (builtin) return { coord: builtin.coord, weight: builtin.weight, source: 'builtin' };
+    return { coord: [0, 0], weight: 0.1, source: 'unknown' };
+  }
+
+  set(token: string, coord: [number, number], weight: number): CustomEntry {
+    const before = this.lookup(token);
+    const entry: CustomEntry = { token, coord, weight, updatedAt: new Date().toISOString() };
+    this.entries.set(token, entry);
+    this.pushEdit({ token, at: entry.updatedAt, action: 'set', before: { coord: before.coord, weight: before.weight }, after: { coord, weight } });
+    this.save();
+    return entry;
+  }
+
+  reset(token: string): boolean {
+    const custom = this.entries.get(token);
+    if (!custom) return false;
+    const builtin = BUILTIN[token];
+    this.entries.delete(token);
+    this.pushEdit({
+      token,
+      at: new Date().toISOString(),
+      action: 'reset',
+      before: { coord: custom.coord, weight: custom.weight },
+      after: builtin ? { coord: builtin.coord, weight: builtin.weight } : { coord: [0, 0], weight: 0.1 },
+    });
+    this.save();
+    return true;
+  }
+
+  history(limit = 20): LexiconEdit[] {
+    return this.edits.slice(-Math.max(1, limit)).reverse();
+  }
+
+  private pushEdit(edit: LexiconEdit): void {
+    this.edits.push(edit);
+    if (this.edits.length > HISTORY_LIMIT) this.edits = this.edits.slice(-HISTORY_LIMIT);
+  }
+
+  private save(): void {
+    try {
+      writeFileSync(join(this.dir, LEXICON_FILE), JSON.stringify({ entries: [...this.entries.values()], history: this.edits }), 'utf8');
+    } catch {
+      /* the custom lexicon is optional diagnostics, not a hard dependency */
+    }
+  }
+
+  private load(): void {
+    const path = join(this.dir, LEXICON_FILE);
+    if (!existsSync(path)) return;
+    try {
+      const data = JSON.parse(readFileSync(path, 'utf8')) as LexiconFile;
+      for (const entry of data.entries ?? []) this.entries.set(entry.token, entry);
+      this.edits = data.history ?? [];
+    } catch {
+      /* a broken file starts empty */
     }
   }
 }

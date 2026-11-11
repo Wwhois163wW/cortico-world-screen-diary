@@ -201,6 +201,7 @@ interface WordRow {
   kind: 'app' | 'word';
   app?: string;
   source: 'app' | 'builtin' | 'custom' | 'unknown';
+  policy?: { category?: string; defaultCategory: string; decayMinutes?: number } | null;
   count: number;
   lastSeen: string;
   coord: [number, number];
@@ -336,7 +337,7 @@ const wordsPanel: WebUiPanel = {
           option.textContent = zh ? labelZh : labelEn;
           select.append(option);
         }
-        const decay = field('', 58);
+        const decay = field(row.policy?.decayMinutes ?? '', 58);
         decay.placeholder = zh ? '衰减' : 'decay';
         decay.title = zh ? '留空跟随类别默认' : 'Empty follows the category default';
         const save = actionButton(zh ? '保存' : 'Save');
@@ -344,13 +345,19 @@ const wordsPanel: WebUiPanel = {
           void (async () => {
             try {
               const minutes = decay.value.trim() ? Number(decay.value) : 0;
-              await ctx.invoke('setApp', [row.app, select.value || null, minutes]);
+              const result = await ctx.invoke<{ ok?: boolean }>('setApp', [row.app, select.value || null, minutes]);
+              if (result?.ok === false) {
+                status.textContent = zh ? '保存失败：应用不在记录中' : 'Save failed: app not recorded';
+                return;
+              }
+              status.textContent = (zh ? '已保存 ' : 'Saved ') + row.app;
               await load();
             } catch (err) {
               status.textContent = (zh ? '保存失败' : 'Save failed') + ': ' + (err instanceof Error ? err.message : String(err));
             }
           })();
         });
+        if (row.policy?.category) select.value = row.policy.category;
         tools.append(select, decay, save);
       } else {
         const workInput = field(row.coord[0], 52);

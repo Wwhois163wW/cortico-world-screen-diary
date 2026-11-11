@@ -15,7 +15,7 @@ import { MODEL_TEXT, type ModelLanguage, type ModelText } from './model-text.ts'
 import { classify, encodeState, StateFilter, categoryLabel, categoryWeight, projectionFor, type Category } from './state.ts';
 import { FlowModel, gapText, type FlowSnapshot } from './flow.ts';
 import { AppCatalog, type AppCategory } from './apps.ts';
-import { LexiconStore, TokenCatalog, TokenWindow, tokenize, type TokenInput } from './tokens.ts';
+import { appToken, LexiconStore, TokenCatalog, TokenWindow, tokenize, type TokenInput } from './tokens.ts';
 
 const ENV_PROMPT_FILES: Record<ModelLanguage, string> = {
   zh: fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url)),
@@ -668,7 +668,8 @@ export class ScreenDiaryWorld implements World {
         return {
           words: rows.map((row) => ({
             ...row,
-            source: row.source ?? this.lexiconStore?.lookup(row.token).source ?? 'unknown',
+            source: row.source ?? (row.kind === 'app' ? 'app' : this.lexiconStore?.lookup(row.token).source ?? 'unknown'),
+            policy: row.kind === 'app' && row.app ? this.catalog?.policy(row.app) ?? null : null,
           })),
         };
       }
@@ -676,11 +677,20 @@ export class ScreenDiaryWorld implements World {
         const [appArg, categoryArg, decayArg] = args;
         const app = typeof appArg === 'string' ? appArg : '';
         const allowed: AppCategory[] = ['develop', 'game', 'casual', 'office', 'video', 'browser', 'ai', 'neutral', 'filtered'];
-        const category = typeof categoryArg === 'string' && categoryArg && allowed.includes(categoryArg as AppCategory) ? categoryArg as AppCategory : undefined;
+        const category: AppCategory | null | undefined = categoryArg === null
+          ? null
+          : (typeof categoryArg === 'string' && categoryArg && allowed.includes(categoryArg as AppCategory) ? categoryArg as AppCategory : undefined);
         const decay = typeof decayArg === 'number' && Number.isFinite(decayArg) ? (decayArg > 0 ? Math.round(decayArg) : 0) : undefined;
         const record = this.catalog?.setPolicy(app, category, decay);
-        return { record: record ?? null };
+        if (!record) return { ok: false, record: null };
+        const effective = record.category ?? record.defaultCategory;
+        if (effective !== 'filtered') {
+          const point = projectionFor(effective);
+          this.tokenCatalog?.refresh(appToken(app), [point.work, point.tech], categoryWeight(effective), 'app');
+        }
+        return { ok: true, record };
       }
+
       case 'setWord': {
         const [tokenArg, workArg, techArg, weightArg] = args;
         const token = typeof tokenArg === 'string' ? tokenArg.trim() : '';

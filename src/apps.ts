@@ -48,8 +48,12 @@ export class AppCatalog {
 
   /** Set or clear the per-app overrides; returns the updated record. */
   setPolicy(app: string, category: AppCategory | null | undefined, decayMinutes: number | null | undefined): AppRecord | undefined {
-    const record = this.records.get(app);
-    if (!record) return undefined;
+    const record = this.records.get(app) ?? {
+      app,
+      count: 0,
+      lastSeen: new Date().toISOString(),
+      defaultCategory: 'neutral',
+    };
     const next: AppRecord = { ...record };
     if (category === null) delete next.category;
     else if (category !== undefined) next.category = category;
